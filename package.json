@@ -1,0 +1,15 @@
+{
+  "name": "whatsapp-assistent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts",
+    "simulate": "tsx src/cli/simulate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

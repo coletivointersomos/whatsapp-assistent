@@ -4,6 +4,7 @@
 node_modules/
 .next/
 dist/
+data/
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
