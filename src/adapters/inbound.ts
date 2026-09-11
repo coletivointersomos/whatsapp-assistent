@@ -1,6 +1,9 @@
 import type { InboundMessage } from "../domain/types.ts";
 
-/** Envelope próximo ao que um adaptador Hermes preencheria depois. */
+/**
+ * Envelope normalizado para o núcleo.
+ * Integração Hermes/VPS: etapa futura de comparação/adaptação. Sem cliente fake aqui.
+ */
 export function normalizeInbound(input: InboundMessage): InboundMessage {
   return {
     externalId: input.externalId,
