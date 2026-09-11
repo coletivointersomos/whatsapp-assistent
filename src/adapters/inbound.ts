@@ -1,8 +1,7 @@
 import type { InboundMessage } from "../domain/types.ts";
 
 /**
- * Envelope normalizado para o núcleo.
- * Integração Hermes/VPS: etapa futura de comparação/adaptação. Sem cliente fake aqui.
+ * Envelope já no contrato do núcleo. Payloads OpenWA entram por `adapters/hermes`.
  */
 export function normalizeInbound(input: InboundMessage): InboundMessage {
   return {
