@@ -14,8 +14,17 @@ describe("parseCentralCommand", () => {
     assert.equal(parsed.end, "2026-09-15");
   });
 
-  it("asks for clarification when the period is missing", () => {
-    const parsed = parseCentralCommand("o motorista do caminhão 1 não trabalha semana que vem");
+  it("asks for clarification when suspender is incomplete", () => {
+    const parsed = parseCentralCommand("suspender João");
     assert.equal(parsed.ambiguous, true);
+    assert.equal(parsed.type, "ambiguous");
+  });
+
+  it("ignores ordinary chat that is not a command", () => {
+    for (const text of ["oi", "obrigada", "beleza"]) {
+      const parsed = parseCentralCommand(text);
+      assert.equal(parsed.type, "none");
+      assert.equal(parsed.ambiguous, false);
+    }
   });
 });

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts",
+    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts tests/simulate.test.ts",
     "simulate": "tsx src/cli/simulate.ts",
     "typecheck": "tsc --noEmit"
   },

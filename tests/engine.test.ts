@@ -197,4 +197,86 @@ describe("engine", () => {
     assert.equal(state.records.length, 1);
     assert.equal(state.messages.length, 1);
   });
+
+  it("ignores ordinary central chat instead of storing an ambiguous command", () => {
+    const state = seedState();
+    const result = run(
+      state,
+      msg({
+        externalId: "central-oi",
+        conversationId: "conv-central",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "oi",
+      }),
+    );
+    assert.equal(result.decision, "ignored");
+    assert.equal(result.replies.length, 0);
+    assert.equal(state.commands.length, 0);
+    assert.equal(state.suspensions.length, 0);
+  });
+
+  it("sets the 15-minute pause from Alana sentAt, not clock.now()", () => {
+    const state = seedState();
+    const sentAt = new Date("2026-09-09T12:00:00.000Z");
+    const processedAt = new Date("2026-09-09T12:20:00.000Z");
+    const pause = run(
+      state,
+      msg({
+        externalId: "alana-late",
+        authorId: "alana",
+        authorRole: "alana",
+        sentAt: sentAt.toISOString(),
+        text: "já vi aqui",
+      }),
+      processedAt,
+    );
+    assert.equal(pause.pause?.silenceUntil, "2026-09-09T12:15:00.000Z");
+    assert.notEqual(pause.pause?.silenceUntil, "2026-09-09T12:35:00.000Z");
+
+    const duringWindow = run(
+      state,
+      msg({ externalId: "drv-on-time", text: "abasteci 150 litros, deu 980, assinada" }),
+      new Date("2026-09-09T12:10:00.000Z"),
+    );
+    assert.equal(duringWindow.replies.length, 0);
+
+    const afterWindow = run(
+      state,
+      msg({ externalId: "drv-late", text: "abasteci 150 litros, deu 980, assinada" }),
+      processedAt,
+    );
+    assert.equal(afterWindow.replies.length, 1);
+  });
+
+  it("does not list an expired suspension as active", () => {
+    const state = seedState();
+    const applied = run(
+      state,
+      msg({
+        externalId: "cmd-old",
+        conversationId: "conv-central",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "suspender motorista João de 2026-09-01 até 2026-09-05",
+      }),
+      new Date("2026-09-02T12:00:00.000Z"),
+    );
+    assert.equal(applied.decision, "command_applied");
+
+    const listed = run(
+      state,
+      msg({
+        externalId: "cmd-list",
+        conversationId: "conv-central",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "listar suspensoes",
+      }),
+      new Date("2026-09-12T12:00:00.000Z"),
+    );
+    assert.equal(listed.decision, "command_applied");
+    assert.equal(listed.replies[0].text, "Nenhuma suspensão ativa.");
+    assert.equal(state.suspensions[0].status, "aplicada");
+  });
 });

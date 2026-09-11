@@ -32,8 +32,9 @@ function resolveDate(text: string, sentAt: Date): string | undefined {
 
 function detectKind(text: string): RecordKind | undefined {
   if (/\b(abastec\w*)\b/i.test(text)) return "abastecimento";
-  if (/\b(viagem|frete)\b/i.test(text)) return "viagem";
   if (/\b(gastei|despesa|gasto)\b/i.test(text)) return "despesa";
+  if (/\bviagem\b/i.test(text)) return "viagem";
+  if (/\bfrete\b/i.test(text) && /\bde\s+.+\s+para\s+/i.test(text)) return "viagem";
   return undefined;
 }
 

@@ -138,7 +138,8 @@ export function processMessage(
   }
 
   if (inbound.authorRole === "alana" || inbound.authorId === state.admin.id) {
-    const silenceUntil = new Date(now.getTime() + PAUSE_MS).toISOString();
+    const sentAt = new Date(inbound.sentAt);
+    const silenceUntil = new Date(sentAt.getTime() + PAUSE_MS).toISOString();
     const pause: ConversationPause = {
       conversationId: conversation.id,
       reason: "intervencao_alana",
@@ -239,7 +240,7 @@ function detectsKind(text: string): boolean {
   return Boolean(extractFromText(text, new Date(), undefined));
 }
 
-function handleCentral(state: AppState, stored: StoredMessage, _now: Date): ProcessResult {
+function handleCentral(state: AppState, stored: StoredMessage, now: Date): ProcessResult {
   const allowed =
     stored.authorRole === "alana" || stored.authorId === state.admin.id;
 
@@ -263,6 +264,10 @@ function handleCentral(state: AppState, stored: StoredMessage, _now: Date): Proc
 
   const parsed = parseCentralCommand(stored.text ?? "");
 
+  if (parsed.type === "none") {
+    return { decision: "ignored", duplicate: false, message: stored, replies: [] };
+  }
+
   if (parsed.ambiguous) {
     const command = {
       id: `cmd-${stored.externalId}`,
@@ -284,7 +289,9 @@ function handleCentral(state: AppState, stored: StoredMessage, _now: Date): Proc
   }
 
   if (parsed.type === "list") {
-    const active = state.suspensions.filter((s) => s.status === "aplicada");
+    const active = state.suspensions.filter((s) =>
+      isSuspensionCovering(s.start, s.end, now, s.status),
+    );
     const text =
       active.length === 0
         ? "Nenhuma suspensão ativa."

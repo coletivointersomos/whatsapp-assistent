@@ -51,4 +51,12 @@ describe("extractFromText", () => {
     assert.equal(f?.viagem?.quantity, 47);
     assert.equal(f?.viagem?.unit, "m³");
   });
+
+  it("classifies 'gastei ... frete' as despesa, not viagem", () => {
+    const e = extractFromText("gastei 80 com frete pago", sentAt);
+    assert.equal(e?.kind, "despesa");
+    assert.equal(e?.despesa?.amountBrl, 80);
+    assert.equal(e?.despesa?.description, "frete");
+    assert.equal(e?.despesa?.payment, "pago");
+  });
 });

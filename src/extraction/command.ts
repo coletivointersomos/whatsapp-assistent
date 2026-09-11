@@ -7,6 +7,7 @@ export type ParsedCommand =
       ambiguous: false;
     }
   | { type: "list"; ambiguous: false }
+  | { type: "none"; ambiguous: false }
   | { type: "ambiguous"; reason: string; ambiguous: true };
 
 const DATE = "(20\\d{2}-\\d{2}-\\d{2})";
@@ -40,11 +41,7 @@ export function parseCentralCommand(text: string): ParsedCommand {
     };
   }
 
-  return {
-    type: "ambiguous",
-    reason: "Não reconheci o comando. Exemplo: suspender motorista João de 2026-09-10 até 2026-09-15",
-    ambiguous: true,
-  };
+  return { type: "none", ambiguous: false };
 }
 
 export function questionForMissing(kind: string, missing: string[]): string {
