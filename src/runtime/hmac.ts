@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const HMAC_HEADER_CANDIDATES = ["x-openwa-signature", "x-hub-signature-256"] as const;
+export const RESUME_SECRET_HEADER = "x-resume-secret";
 
 function headerValue(headers: Record<string, string | undefined>, name: string): string | undefined {
   const lower = name.toLowerCase();
@@ -50,4 +51,32 @@ export function verifyWebhookHmac(input: {
   const expected = hmacSha256Hex(input.secret, input.rawBody);
   if (!signaturesMatch(provided, expected)) return { ok: false, reason: "hmac_mismatch" };
   return { ok: true };
+}
+
+function hashedEqual(left: string, right: string): boolean {
+  const a = createHmac("sha256", "resume-auth").update(left).digest();
+  const b = createHmac("sha256", "resume-auth").update(right).digest();
+  return timingSafeEqual(a, b);
+}
+
+/** Auth do POST /resume: header `x-resume-secret` = OPENWA_HMAC_SECRET, ou HMAC do body como o webhook. */
+export function verifyResumeAuth(input: {
+  required: boolean;
+  secret: string;
+  rawBody: Buffer;
+  headers: Record<string, string | undefined>;
+}): HmacCheck {
+  if (!input.required && !input.secret) return { ok: true };
+  if (!input.secret) return { ok: false, reason: "hmac_required" };
+  const bearer = headerValue(input.headers, RESUME_SECRET_HEADER);
+  if (bearer && hashedEqual(bearer, input.secret)) return { ok: true };
+  const hmac = verifyWebhookHmac({
+    required: true,
+    secret: input.secret,
+    rawBody: input.rawBody,
+    headers: input.headers,
+  });
+  if (hmac.ok) return hmac;
+  if (!bearer && hmac.reason === "hmac_missing") return { ok: false, reason: "hmac_missing" };
+  return { ok: false, reason: "hmac_mismatch" };
 }

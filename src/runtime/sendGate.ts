@@ -15,7 +15,10 @@ export type SendGate =
   | { allowed: true; texts: string[] };
 
 export function outgoingTexts(replies: BotReply[]): string[] {
-  return replies.filter((r) => !r.silentResume && r.text.trim()).map((r) => r.text);
+  return replies
+    .filter((r) => r.text.trim())
+    .filter((r) => r.purpose === "resume_pending_question" || !r.silentResume)
+    .map((r) => r.text);
 }
 
 export function decideSend(input: {

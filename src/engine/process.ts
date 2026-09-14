@@ -27,6 +27,7 @@ import {
   isDeferral,
   looksLikeAdminCommand,
 } from "../extraction/extract.ts";
+import { planPendingResume } from "./resume.ts";
 
 export type Clock = { now: () => Date };
 
@@ -407,23 +408,20 @@ function handleCentral(state: AppState, stored: StoredMessage, now: Date): Proce
 }
 
 export function considerResume(state: AppState, conversationId: string, clock: Clock): BotReply[] {
-  const now = clock.now();
-  const conversation = state.conversations.find((c) => c.id === conversationId);
-  if (!conversation?.driverId) return [];
-  if (!canSendProactive(state, conversationId, conversation.driverId, now)) return [];
-
-  const pending = [...state.records]
-    .reverse()
-    .find((r) => r.driverId === conversation.driverId && r.status === "incompleto");
-  if (!pending) return [];
-
-  const text = questionForMissing(pending.kind, pending.missing);
-  const same = state.botReplies.some(
-    (r) => r.conversationId === conversationId && r.text === text,
+  const plan = planPendingResume(state, conversationId, clock);
+  if (!plan.allowed) return [];
+  const alreadySilent = state.botReplies.some(
+    (reply) =>
+      reply.silentResume &&
+      reply.conversationId === plan.conversationId &&
+      reply.text === plan.text,
   );
-  if (same) return [];
-
-  const reply: BotReply = { conversationId, text, silentResume: true };
+  if (alreadySilent) return [];
+  const reply: BotReply = {
+    conversationId: plan.conversationId,
+    text: plan.text,
+    silentResume: true,
+  };
   state.botReplies.push(reply);
   return [reply];
 }

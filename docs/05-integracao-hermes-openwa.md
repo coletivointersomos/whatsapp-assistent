@@ -88,6 +88,22 @@ Trava em três camadas:
 
 HMAC (lab): headers `x-openwa-signature` ou `x-hub-signature-256`, HMAC-SHA256 hex do body bruto (`sha256=` aceito). Segredo não está neste repo. Sem segredo + `HMAC_REQUIRED=true` → não sobe.
 
+## 5.1 Retomada controlada (`POST /resume`)
+
+Sem scheduler. Depois que a pausa da Alana expira, um operador pode pedir **uma** pergunta de pendência para o `TEST_GROUP_JID`.
+
+```
+POST /resume
+x-resume-secret: <OPENWA_HMAC_SECRET>
+Content-Type: application/json
+
+{}
+```
+
+Ou o mesmo HMAC do webhook no body. Body opcional: `{ "conversationId": "<TEST_GROUP_JID>" }` — outro JID é recusado.
+
+Envia só se `LIVE_SEND=true`, allowlist, pausa expirada, registro incompleto ainda não perguntado nesta retomada (dedupe por conversa + `recordId` + campos faltantes + `resume_pending_question`). Sem loop automático.
+
 ## 6. Envio OpenWA
 
 Contrato reaproveitado do lab/bridge:

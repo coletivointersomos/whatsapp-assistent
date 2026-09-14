@@ -4,8 +4,9 @@ import { createOpenWaSender, disabledSender } from "../adapters/hermes/openwaSen
 import { seedState } from "../config/seed.ts";
 import { loadState, saveState } from "../persistence/store.ts";
 import { describeSendMode, type RuntimeConfig } from "./config.ts";
-import { verifyWebhookHmac } from "./hmac.ts";
+import { verifyWebhookHmac, verifyResumeAuth } from "./hmac.ts";
 import { handleInboundPayload } from "./pipeline.ts";
+import { handleResume } from "./resume.ts";
 
 function readHeaders(req: IncomingMessage): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
@@ -57,6 +58,43 @@ export function createAppServer(runtime: RuntimeConfig) {
         });
         return;
       }
+
+      if (req.method === "POST" && url.pathname === "/resume") {
+        const rawBody = await readBody(req);
+        const headers = readHeaders(req);
+        const auth = verifyResumeAuth({
+          required: runtime.hmacRequired,
+          secret: runtime.hmacSecret,
+          rawBody,
+          headers,
+        });
+        if (!auth.ok) {
+          log("resume_auth_rejected", { reason: auth.reason });
+          json(res, 401, { ok: false, reason: auth.reason });
+          return;
+        }
+        let requestedConversationId: string | undefined;
+        if (rawBody.length) {
+          try {
+            const parsed = JSON.parse(rawBody.toString("utf8")) as { conversationId?: unknown };
+            if (typeof parsed.conversationId === "string") requestedConversationId = parsed.conversationId;
+          } catch {
+            json(res, 400, { ok: false, reason: "invalid_json" });
+            return;
+          }
+        }
+        const result = await handleResume({
+          runtime,
+          state,
+          sender,
+          requestedConversationId,
+          log,
+        });
+        saveState(runtime.storePath, state);
+        json(res, result.httpStatus, result.body);
+        return;
+      }
+
       if (req.method !== "POST" || url.pathname !== "/webhook") {
         json(res, 404, { ok: false, reason: "not_found" });
         return;
@@ -111,5 +149,6 @@ export function logStartup(runtime: RuntimeConfig): void {
     sessionConfigured: Boolean(runtime.sessionId && runtime.sessionId !== "unset"),
     allowlistSize: runtime.channel.conversations.length,
     sendMode: describeSendMode(runtime),
+    resumePath: "/resume",
   });
 }

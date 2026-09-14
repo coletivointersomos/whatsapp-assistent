@@ -129,6 +129,10 @@ export type BotReply = {
   conversationId: string;
   text: string;
   silentResume?: boolean;
+  /** Retomada controlada (POST /resume). Não usar só o texto da pergunta para dedupe. */
+  purpose?: "resume_pending_question";
+  recordId?: string;
+  missingKey?: string;
 };
 
 export type AppState = {
