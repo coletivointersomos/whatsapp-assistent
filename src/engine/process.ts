@@ -16,15 +16,19 @@ import type {
   AppState,
   BotReply,
   ConversationPause,
+  DriverDeferral,
   InboundMessage,
   OperationalRecord,
   ProcessResult,
   StoredMessage,
 } from "../domain/types.ts";
-import { parseCentralCommand, questionForMissing } from "../extraction/command.ts";
+import { confirmationForKind, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
+import { matchAdminAssist, matchCentralAssist, matchDriverAssist } from "../extraction/assist.ts";
 import {
+  extractComplement,
   extractFromText,
   isDeferral,
+  isNewOperationalEvent,
   looksLikeAdminCommand,
 } from "../extraction/extract.ts";
 import { planPendingResume } from "./resume.ts";
@@ -69,6 +73,61 @@ function conversationPause(state: AppState, conversationId: string) {
   return state.pauses.find((p) => p.conversationId === conversationId);
 }
 
+function recordInConversation(
+  state: AppState,
+  record: OperationalRecord,
+  conversation: { id: string; externalId: string },
+): boolean {
+  return record.sourceMessageIds.some((id) => {
+    const message = state.messages.find((item) => item.externalId === id);
+    if (!message) return false;
+    return (
+      message.conversationId === conversation.id ||
+      message.conversationId === conversation.externalId
+    );
+  });
+}
+
+function findOpenIncomplete(
+  state: AppState,
+  conversation: { id: string; externalId: string; driverId?: string },
+): OperationalRecord | undefined {
+  if (!conversation.driverId) return undefined;
+  const matches = state.records.filter(
+    (record) =>
+      record.status === "incompleto" &&
+      record.driverId === conversation.driverId &&
+      recordInConversation(state, record, conversation),
+  );
+  return matches[matches.length - 1];
+}
+
+function pendingFields(record: OperationalRecord) {
+  return record.kind === "abastecimento"
+    ? record.abastecimento
+    : record.kind === "despesa"
+      ? record.despesa
+      : record.viagem;
+}
+
+function applyComplement(record: OperationalRecord, incoming: Record<string, string | number> | undefined) {
+  if (!incoming) return [] as string[];
+  const bucket =
+    record.kind === "abastecimento"
+      ? (record.abastecimento ??= {})
+      : record.kind === "despesa"
+        ? (record.despesa ??= {})
+        : (record.viagem ??= {});
+  const filled: string[] = [];
+  for (const key of record.missing) {
+    const value = incoming[key];
+    if (value === undefined || value === "") continue;
+    (bucket as Record<string, string | number>)[key] = value;
+    filled.push(key);
+  }
+  return filled;
+}
+
 function canSendProactive(
   state: AppState,
   conversationId: string,
@@ -79,6 +138,20 @@ function canSendProactive(
   if (pause && isPauseActive(pause.silenceUntil, now)) return false;
   if (driverId && activeSuspension(state, driverId, now)) return false;
   return true;
+}
+
+function clearDeferral(state: AppState, conversationId: string) {
+  state.deferrals = state.deferrals.filter((item) => item.conversationId !== conversationId);
+}
+
+function pushReply(
+  state: AppState,
+  conversationId: string,
+  text: string,
+): BotReply {
+  const reply = { conversationId, text };
+  state.botReplies.push(reply);
+  return reply;
 }
 
 function snapshotReplies(replies: BotReply[]): BotReply[] {
@@ -154,6 +227,8 @@ export function processMessage(
   }
 
   if (authorRole === "alana") {
+    const existingPause = conversationPause(state, conversation.id);
+    const alreadyPaused = Boolean(existingPause && isPauseActive(existingPause.silenceUntil, now));
     const sentAt = new Date(inbound.sentAt);
     const silenceUntil = new Date(sentAt.getTime() + PAUSE_MS).toISOString();
     const pause: ConversationPause = {
@@ -165,7 +240,15 @@ export function processMessage(
     const idx = state.pauses.findIndex((p) => p.conversationId === conversation.id);
     if (idx >= 0) state.pauses[idx] = pause;
     else state.pauses.push(pause);
-    return { decision: "pause_updated", duplicate: false, message: stored, replies: [], pause };
+    const assist = !alreadyPaused ? matchAdminAssist(inbound.text ?? "") : undefined;
+    const replies: BotReply[] = assist ? [pushReply(state, conversation.id, assist)] : [];
+    return {
+      decision: assist ? "assisted" : "pause_updated",
+      duplicate: false,
+      message: stored,
+      replies: snapshotReplies(replies),
+      pause,
+    };
   }
 
   if (authorRole !== "motorista" || !isPrincipalDriver(state, conversation.driverId, inbound.authorId)) {
@@ -202,7 +285,33 @@ export function processMessage(
   }
 
   if (text && isDeferral(text)) {
-    return { decision: "deferred", duplicate: false, message: stored, replies: [] };
+    const pending = findOpenIncomplete(state, conversation);
+    const deferral: DriverDeferral = {
+      conversationId: conversation.id,
+      recordId: pending?.id,
+      reason: "motorista_adiou",
+      messageId: inbound.externalId,
+      deferredAt: now.toISOString(),
+    };
+    const idx = state.deferrals.findIndex((item) => item.conversationId === conversation.id);
+    if (idx >= 0) state.deferrals[idx] = deferral;
+    else state.deferrals.push(deferral);
+    const replies: BotReply[] = canSendProactive(
+      state,
+      conversation.id,
+      conversation.driverId,
+      now,
+    )
+      ? [pushReply(state, conversation.id, "Beleza, te pergunto depois.")]
+      : [];
+    return {
+      decision: "deferred",
+      duplicate: false,
+      message: stored,
+      record: pending,
+      deferral,
+      replies: snapshotReplies(replies),
+    };
   }
 
   if (inbound.type === "anexo_comprovante" && !detectsKind(text)) {
@@ -222,8 +331,54 @@ export function processMessage(
   const driver =
     findDriverByAuthor(state, inbound.authorId) ??
     state.drivers.find((d) => d.id === conversation.driverId);
-  const extracted = extractFromText(text, new Date(inbound.sentAt), driver?.vehicleHint);
+  const sentAt = new Date(inbound.sentAt);
+  const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
+  const pending = findOpenIncomplete(state, conversation);
+
+  if (pending && !isNewOperationalEvent(extracted, pending.kind, pendingFields(pending))) {
+    const complement = extractComplement(pending.kind, text, sentAt, driver?.vehicleHint);
+    const incoming =
+      pending.kind === "abastecimento"
+        ? complement.abastecimento
+        : pending.kind === "despesa"
+          ? complement.despesa
+          : complement.viagem;
+    const filled = applyComplement(pending, incoming);
+    if (filled.length > 0) {
+      pending.sourceMessageIds.push(inbound.externalId);
+      pending.missing = missingFields(pending);
+      pending.status = pending.missing.length === 0 ? "completo" : "incompleto";
+      clearDeferral(state, conversation.id);
+      const replies: BotReply[] = [];
+      if (canSendProactive(state, conversation.id, conversation.driverId, now)) {
+        if (pending.status === "completo") {
+          replies.push(pushReply(state, conversation.id, confirmationForKind(pending.kind)));
+        } else {
+          replies.push(
+            pushReply(state, conversation.id, questionForMissing(pending.kind, pending.missing)),
+          );
+        }
+      }
+      return {
+        decision: pending.status === "completo" ? "record_created" : "record_incomplete",
+        duplicate: false,
+        message: stored,
+        record: pending,
+        replies: snapshotReplies(replies),
+      };
+    }
+  }
+
   if (!extracted || !conversation.driverId) {
+    const assist = matchDriverAssist(text);
+    if (assist && canSendProactive(state, conversation.id, conversation.driverId, now)) {
+      return {
+        decision: "assisted",
+        duplicate: false,
+        message: stored,
+        replies: snapshotReplies([pushReply(state, conversation.id, assist)]),
+      };
+    }
     const replies = considerResume(state, conversation.id, { now: () => now });
     return {
       decision: "ignored",
@@ -247,18 +402,14 @@ export function processMessage(
   record.missing = missingFields(record);
   record.status = record.missing.length === 0 ? "completo" : "incompleto";
   state.records.push(record);
+  clearDeferral(state, conversation.id);
 
   const replies: BotReply[] = [];
   if (
     record.status === "incompleto" &&
     canSendProactive(state, conversation.id, conversation.driverId, now)
   ) {
-    const reply = {
-      conversationId: conversation.id,
-      text: questionForMissing(record.kind, record.missing),
-    };
-    replies.push(reply);
-    state.botReplies.push(reply);
+    replies.push(pushReply(state, conversation.id, questionForMissing(record.kind, record.missing)));
   }
 
   return {
@@ -298,6 +449,15 @@ function handleCentral(state: AppState, stored: StoredMessage, now: Date): Proce
   const parsed = parseCentralCommand(stored.text ?? "");
 
   if (parsed.type === "none") {
+    const assist = matchCentralAssist(stored.text ?? "");
+    if (assist) {
+      return {
+        decision: "assisted",
+        duplicate: false,
+        message: stored,
+        replies: snapshotReplies([pushReply(state, stored.conversationId, assist)]),
+      };
+    }
     return { decision: "ignored", duplicate: false, message: stored, replies: [] };
   }
 
@@ -408,6 +568,7 @@ function handleCentral(state: AppState, stored: StoredMessage, now: Date): Proce
 }
 
 export function considerResume(state: AppState, conversationId: string, clock: Clock): BotReply[] {
+  if (state.deferrals.some((item) => item.conversationId === conversationId)) return [];
   const plan = planPendingResume(state, conversationId, clock);
   if (!plan.allowed) return [];
   const alreadySilent = state.botReplies.some(

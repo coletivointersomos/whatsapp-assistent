@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { extractFromText } from "../src/extraction/extract.ts";
+import { extractComplement, extractFromText } from "../src/extraction/extract.ts";
 
 const sentAt = new Date("2026-09-09T12:00:00.000Z");
 
@@ -58,5 +58,73 @@ describe("extractFromText", () => {
     assert.equal(e?.despesa?.amountBrl, 80);
     assert.equal(e?.despesa?.description, "frete");
     assert.equal(e?.despesa?.payment, "pago");
+  });
+});
+
+describe("extractComplement", () => {
+  it("fills abastecimento date and place without repeating the category", () => {
+    const a = extractComplement("abastecimento", "foi hoje no posto X", sentAt);
+    assert.equal(a.abastecimento?.date, "2026-09-09");
+    assert.equal(a.abastecimento?.place, "posto X");
+    assert.equal(extractFromText("foi hoje no posto X", sentAt), undefined);
+
+    const b = extractComplement("abastecimento", "ontem no posto São João", sentAt);
+    assert.equal(b.abastecimento?.date, "2026-09-08");
+    assert.equal(b.abastecimento?.place, "posto São João");
+
+    const c = extractComplement("abastecimento", "posto X", sentAt);
+    assert.equal(c.abastecimento?.place, "posto X");
+    assert.equal(c.abastecimento?.date, undefined);
+
+    const d = extractComplement("abastecimento", "foi no posto São João hoje", sentAt);
+    assert.equal(d.abastecimento?.place, "posto São João");
+    assert.equal(d.abastecimento?.date, "2026-09-09");
+
+    const e = extractComplement("abastecimento", "foi hoje lá no posto X", sentAt);
+    assert.equal(e.abastecimento?.date, "2026-09-09");
+    assert.equal(e.abastecimento?.place, "posto X");
+  });
+
+  it("fills despesa payment and description without gastei", () => {
+    const a = extractComplement("despesa", "foi almoço, assinada", sentAt);
+    assert.equal(a.despesa?.description, "almoço");
+    assert.equal(a.despesa?.payment, "assinada");
+
+    const b = extractComplement("despesa", "foi pago", sentAt);
+    assert.equal(b.despesa?.payment, "pago");
+    assert.equal(b.despesa?.description, undefined);
+
+    const c = extractComplement("despesa", "com almoço", sentAt);
+    assert.equal(c.despesa?.description, "almoço");
+
+    const d = extractComplement("despesa", "isso foi pago", sentAt);
+    assert.equal(d.despesa?.payment, "pago");
+
+    const e = extractComplement("despesa", "pode colocar como assinada", sentAt);
+    assert.equal(e.despesa?.payment, "assinada");
+
+    const f = extractComplement("despesa", "foi com almoço", sentAt);
+    assert.equal(f.despesa?.description, "almoço");
+  });
+
+  it("fills viagem quantity, unit, route and material without repeating viagem", () => {
+    const qty = extractComplement("viagem", "47 m3", sentAt);
+    assert.equal(qty.viagem?.quantity, 47);
+    assert.equal(qty.viagem?.unit, "m³");
+
+    const tons = extractComplement("viagem", "35 toneladas", sentAt);
+    assert.equal(tons.viagem?.quantity, 35);
+    assert.equal(tons.viagem?.unit, "toneladas");
+
+    const route = extractComplement("viagem", "de Barreiras pra Recife", sentAt);
+    assert.equal(route.viagem?.origin, "Barreiras");
+    assert.equal(route.viagem?.destination, "Recife");
+
+    const material = extractComplement("viagem", "era soja", sentAt);
+    assert.equal(material.viagem?.material, "soja");
+
+    const foram = extractComplement("viagem", "foram 47 m3", sentAt);
+    assert.equal(foram.viagem?.quantity, 47);
+    assert.equal(foram.viagem?.unit, "m³");
   });
 });

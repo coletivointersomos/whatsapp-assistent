@@ -48,7 +48,7 @@ describe("engine", () => {
     assert.ok(result.record?.missing.includes("place"));
     assert.equal(result.record?.abastecimento?.payment, "assinada");
     assert.equal(result.replies.length, 1);
-    assert.match(result.replies[0].text, /data|local/i);
+    assert.match(result.replies[0].text, /hoje|posto/i);
   });
 
   it("does not change operational records for an unauthorized conversation", () => {
@@ -360,6 +360,10 @@ describe("engine", () => {
     const result = run(state, msg({ externalId: "def-1", text: "agora não posso" }));
     assert.equal(result.decision, "deferred");
     assert.equal(state.pauses.length, 0);
-    assert.equal(result.replies.length, 0);
+    assert.equal(state.records.length, 0);
+    assert.equal(state.deferrals.length, 1);
+    assert.equal(state.deferrals[0].reason, "motorista_adiou");
+    assert.equal(result.replies.length, 1);
+    assert.equal(result.replies[0].text, "Beleza, te pergunto depois.");
   });
 });

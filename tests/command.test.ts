@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseCentralCommand } from "../src/extraction/command.ts";
+import { confirmationForKind, parseCentralCommand, questionForMissing } from "../src/extraction/command.ts";
 
 describe("parseCentralCommand", () => {
   it("parses an explicit suspension", () => {
@@ -26,5 +26,26 @@ describe("parseCentralCommand", () => {
       assert.equal(parsed.type, "none");
       assert.equal(parsed.ambiguous, false);
     }
+  });
+});
+
+describe("perguntas e confirmações curtas", () => {
+  it("asks a short question for common missing pairs", () => {
+    assert.equal(questionForMissing("abastecimento", ["place"]), "Qual foi o posto?");
+    assert.equal(
+      questionForMissing("abastecimento", ["date", "place"]),
+      "Foi hoje? E qual foi o posto?",
+    );
+    assert.equal(questionForMissing("despesa", ["payment"]), "Foi pago ou ficou assinada?");
+    assert.equal(
+      questionForMissing("viagem", ["origin", "destination"]),
+      "Qual foi a origem e o destino?",
+    );
+  });
+
+  it("confirms by record kind", () => {
+    assert.equal(confirmationForKind("abastecimento"), "Fechado, registrei esse abastecimento.");
+    assert.equal(confirmationForKind("despesa"), "Fechado, registrei essa despesa.");
+    assert.equal(confirmationForKind("viagem"), "Fechado, registrei essa viagem.");
   });
 });

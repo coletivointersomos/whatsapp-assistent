@@ -110,7 +110,7 @@ describe("POST /resume pending question", () => {
     assert.equal(result.body.decision, "resume_pending_question");
     assert.equal(sender.calls.length, 1);
     assert.equal(sender.calls[0].chatId, TEST_GROUP);
-    assert.equal(sender.calls[0].text, "Faltam data e local/posto. Pode informar?");
+    assert.equal(sender.calls[0].text, "Foi hoje? E qual foi o posto?");
     assert.equal((result.body.send as { attempted: boolean }).attempted, true);
   });
 

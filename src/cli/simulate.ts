@@ -55,14 +55,14 @@ export function runFixtureData(fixture: Fixture, name = "inline"): FixtureReport
       decision: result.decision,
       duplicate: result.duplicate,
       record: result.record
-        ? {
+        ? structuredClone({
             kind: result.record.kind,
             status: result.record.status,
             missing: result.record.missing,
             abastecimento: result.record.abastecimento,
             despesa: result.record.despesa,
             viagem: result.record.viagem,
-          }
+          })
         : undefined,
       replies: result.replies,
       pause: result.pause,

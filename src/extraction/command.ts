@@ -44,23 +44,43 @@ export function parseCentralCommand(text: string): ParsedCommand {
   return { type: "none", ambiguous: false };
 }
 
-export function questionForMissing(kind: string, missing: string[]): string {
-  const labels: Record<string, string> = {
-    date: "data",
-    liters: "litros",
-    totalBrl: "valor total",
-    place: "local/posto",
-    payment: "pagamento",
-    amountBrl: "valor",
-    description: "descrição",
-    origin: "origem",
-    destination: "destino",
-    material: "material",
-    quantity: "quantidade",
-    unit: "unidade da carga",
-  };
-  const named = missing.map((k) => labels[k] ?? k);
-  if (named.length === 1) return `Qual a ${named[0]}?`;
-  if (named.length === 2) return `Faltam ${named[0]} e ${named[1]}. Pode informar?`;
-  return `Faltam: ${named.join(", ")}. Pode informar o próximo?`;
+export function questionForMissing(_kind: string, missing: string[]): string {
+  const same = (...keys: string[]) =>
+    missing.length === keys.length && keys.every((key) => missing.includes(key));
+
+  if (same("place")) return "Qual foi o posto?";
+  if (same("date")) return "Foi hoje ou outro dia?";
+  if (same("date", "place")) return "Foi hoje? E qual foi o posto?";
+  if (same("payment")) return "Foi pago ou ficou assinada?";
+  if (same("origin", "destination")) return "Qual foi a origem e o destino?";
+  if (same("origin")) return "Qual foi a origem?";
+  if (same("destination")) return "Qual foi o destino?";
+  if (same("description")) return "O que foi essa despesa?";
+  if (same("description", "payment")) return "O que foi? Foi pago ou assinada?";
+  if (same("amountBrl") || same("totalBrl")) return "Qual foi o valor?";
+  if (same("liters")) return "Quantos litros?";
+  if (same("material")) return "Qual foi o material?";
+  if (same("quantity") || same("unit") || same("quantity", "unit")) {
+    return "Quantas toneladas ou m³?";
+  }
+  if (same("date", "material")) return "Foi hoje? Qual foi o material?";
+
+  const first = missing[0];
+  if (first === "date") return "Foi hoje ou outro dia?";
+  if (first === "place") return "Qual foi o posto?";
+  if (first === "payment") return "Foi pago ou ficou assinada?";
+  if (first === "origin") return "Qual foi a origem?";
+  if (first === "destination") return "Qual foi o destino?";
+  if (first === "description") return "O que foi essa despesa?";
+  if (first === "material") return "Qual foi o material?";
+  if (first === "quantity" || first === "unit") return "Quantas toneladas ou m³?";
+  if (first === "liters") return "Quantos litros?";
+  if (first === "amountBrl" || first === "totalBrl") return "Qual foi o valor?";
+  return "Pode completar o que faltou?";
+}
+
+export function confirmationForKind(kind: string): string {
+  if (kind === "despesa") return "Fechado, registrei essa despesa.";
+  if (kind === "viagem") return "Fechado, registrei essa viagem.";
+  return "Fechado, registrei esse abastecimento.";
 }

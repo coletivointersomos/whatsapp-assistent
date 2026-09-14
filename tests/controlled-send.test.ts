@@ -123,7 +123,7 @@ describe("controlled live send", () => {
     assert.equal(result.body.decision, "record_incomplete");
     assert.equal(sender.calls.length, 1);
     assert.equal(sender.calls[0].chatId, TEST_GROUP);
-    assert.match(sender.calls[0].text, /data|local/i);
+    assert.match(sender.calls[0].text, /hoje|posto/i);
   });
 
   it("processes another allowlisted chat but does not send outside the test group", async () => {

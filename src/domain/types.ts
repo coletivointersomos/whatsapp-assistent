@@ -106,6 +106,15 @@ export type ConversationPause = {
   lastAlanaMessageId: string;
 };
 
+/** Adiamento leve do motorista. Sem scheduler: só evita insistir na hora. */
+export type DriverDeferral = {
+  conversationId: string;
+  recordId?: string;
+  reason: "motorista_adiou";
+  messageId: string;
+  deferredAt: string;
+};
+
 export type Suspension = {
   id: string;
   driverId: string;
@@ -145,6 +154,7 @@ export type AppState = {
   rejected: RejectedMessage[];
   records: OperationalRecord[];
   pauses: ConversationPause[];
+  deferrals: DriverDeferral[];
   suspensions: Suspension[];
   commands: CentralCommand[];
   botReplies: BotReply[];
@@ -161,6 +171,7 @@ export type ProcessDecision =
   | "command_ambiguous"
   | "command_refused"
   | "attachment_stored"
+  | "assisted"
   | "ignored";
 
 export type ProcessResult = {
@@ -170,6 +181,7 @@ export type ProcessResult = {
   record?: OperationalRecord;
   replies: BotReply[];
   pause?: ConversationPause;
+  deferral?: DriverDeferral;
   suspension?: Suspension;
   command?: CentralCommand;
   rejected?: RejectedMessage;

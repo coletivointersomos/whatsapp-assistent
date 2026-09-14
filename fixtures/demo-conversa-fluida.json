@@ -1,0 +1,41 @@
+{
+  "now": "2026-09-09T12:00:00.000Z",
+  "messages": [
+    {
+      "externalId": "demo-abast-1",
+      "conversationId": "conv-joao",
+      "authorId": "motorista-joao",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:00:00.000Z",
+      "type": "texto",
+      "text": "abasteci 150 litros, deu 980, assinada"
+    },
+    {
+      "externalId": "demo-abast-2",
+      "conversationId": "conv-joao",
+      "authorId": "motorista-joao",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:00:30.000Z",
+      "type": "texto",
+      "text": "foi hoje no posto São João"
+    },
+    {
+      "externalId": "demo-admin-1",
+      "conversationId": "conv-joao",
+      "authorId": "alana",
+      "authorRole": "alana",
+      "sentAt": "2026-09-09T12:01:00.000Z",
+      "type": "texto",
+      "text": "estou falando com ele"
+    },
+    {
+      "externalId": "demo-desp-1",
+      "conversationId": "conv-joao",
+      "authorId": "motorista-joao",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:02:00.000Z",
+      "type": "texto",
+      "text": "hoje gastei 80 com almoço pago"
+    }
+  ]
+}

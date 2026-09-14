@@ -10,7 +10,9 @@ export function emptyState(): AppState {
 export function loadState(filePath: string): AppState {
   if (!existsSync(filePath)) return seedState();
   const raw = readFileSync(filePath, "utf8");
-  return JSON.parse(raw) as AppState;
+  const parsed = JSON.parse(raw) as AppState;
+  if (!parsed.deferrals) parsed.deferrals = [];
+  return parsed;
 }
 
 export function saveState(filePath: string, state: AppState): void {

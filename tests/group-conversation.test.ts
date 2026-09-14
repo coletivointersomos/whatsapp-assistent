@@ -241,7 +241,7 @@ describe("grupo autorizado com Alana + motorista + bot", () => {
     );
     assert.equal(ping.decision, "ignored");
     assert.equal(ping.replies.length, 1);
-    assert.match(ping.replies[0].text, /data|local/i);
+    assert.match(ping.replies[0].text, /hoje|posto/i);
 
     const none = considerResume(applyChannelConfig(seedState(), channel), GROUP, {
       now: () => later,

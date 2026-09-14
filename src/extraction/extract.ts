@@ -38,20 +38,72 @@ function detectKind(text: string): RecordKind | undefined {
   return undefined;
 }
 
+const COMPLEMENT_RESERVED = new Set([
+  "hoje",
+  "ontem",
+  "foi",
+  "no",
+  "na",
+  "de",
+  "para",
+  "com",
+  "em",
+  "pago",
+  "paga",
+  "assinada",
+  "posto",
+  "viagem",
+  "frete",
+  "despesa",
+  "gasto",
+  "gastei",
+  "abasteci",
+  "litros",
+  "toneladas",
+]);
+
+function isReservedWord(value: string): boolean {
+  return COMPLEMENT_RESERVED.has(value.trim().toLowerCase());
+}
+
+function extractPlace(text: string): string | undefined {
+  const stop = "(?=\\s+(?:deu|hoje|ontem)\\b|,|$)";
+  const withNo = text.match(new RegExp(`\\b(?:l[aá]\\s+)?no\\s+(posto\\s+[^,.;]+?)${stop}`, "i"));
+  if (withNo) return withNo[1].trim();
+  const posto = text.match(new RegExp(`\\bposto\\s+([^,.;]+?)${stop}`, "i"));
+  if (!posto) return undefined;
+  const rest = posto[1].trim();
+  if (!rest) return undefined;
+  return /^posto\b/i.test(rest) ? rest : `posto ${rest}`;
+}
+
+function extractDescription(text: string): string | undefined {
+  const withPrep = text.match(
+    /\b(?:com|de|em)\s+([^,.;]+?)(?=\s+(?:pago|paga|assinada)\b|,|$)/i,
+  );
+  if (withPrep) {
+    const value = withPrep[1].trim();
+    if (!/^(hoje|ontem|pago|paga|assinada)$/i.test(value)) return value;
+  }
+  const foi = text.match(
+    /\b(?:foi|era)\s+(?:com\s+)?(?!hoje\b|ontem\b|pago\b|paga\b|assinada\b)([^,.;]+?)(?=\s+(?:pago|paga|assinada|hoje|ontem)\b|,|$)/i,
+  );
+  if (foi) return foi[1].trim();
+  return undefined;
+}
+
 function extractAbastecimento(text: string, sentAt: Date, vehicle?: string) {
   const liters = text.match(/(\d+(?:[.,]\d+)?)\s*(?:l(?:itros?)?)\b/i);
   const total =
     text.match(/\bdeu\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\b/i) ??
     text.match(/(?:r\$\s*)(\d+(?:[.,]\d+)?)/i);
-  const place =
-    text.match(/\bno\s+(posto\s+[^,.;]+?)(?=\s+deu\b|,|$)/i) ??
-    text.match(/\bposto\s+([^,.;]+?)(?=\s+deu\b|,|$)/i);
   const fields: Record<string, string | number> = {};
   const date = resolveDate(text, sentAt);
   if (date) fields.date = date;
   if (liters) fields.liters = parseNumber(liters[1]);
   if (total) fields.totalBrl = parseNumber(total[1]);
-  if (place) fields.place = place[1].trim();
+  const place = extractPlace(text);
+  if (place) fields.place = place;
   const payment = paymentToken(text);
   if (payment) fields.payment = payment;
   if (vehicle) fields.vehicle = vehicle;
@@ -62,14 +114,12 @@ function extractDespesa(text: string, sentAt: Date, vehicle?: string) {
   const amount =
     text.match(/\b(?:gastei|gasto|despesa)\s*(?:de\s*)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)/i) ??
     text.match(/(?:r\$\s*)(\d+(?:[.,]\d+)?)/i);
-  const description = text.match(
-    /\b(?:com|de|em)\s+([^,.;]+?)(?=\s+(?:pago|paga|assinada)\b|,|$)/i,
-  );
   const fields: Record<string, string | number> = {};
   const date = resolveDate(text, sentAt);
   if (date) fields.date = date;
   if (amount) fields.amountBrl = parseNumber(amount[1]);
-  if (description) fields.description = description[1].trim();
+  const description = extractDescription(text);
+  if (description) fields.description = description;
   const payment = paymentToken(text);
   if (payment) fields.payment = payment;
   if (vehicle) fields.vehicle = vehicle;
@@ -77,7 +127,7 @@ function extractDespesa(text: string, sentAt: Date, vehicle?: string) {
 }
 
 function extractViagem(text: string, sentAt: Date, vehicle?: string) {
-  const route = text.match(/\bde\s+(.+?)\s+para\s+(.+?)(?=\s+com\b|,|$)/i);
+  const route = text.match(/\bde\s+(.+?)\s+(?:para|pra)\s+(.+?)(?=\s+com\b|,|$)/i);
   const qty = text.match(
     /(\d+(?:[.,]\d+)?)\s*(toneladas?|t\b|m[³3]|metros?\s*c[uú]bicos?|kg)\b/i,
   );
@@ -100,6 +150,18 @@ function extractViagem(text: string, sentAt: Date, vehicle?: string) {
     fields.unit = unitRaw.startsWith("m") ? "m³" : unitRaw.replace(/^t$/, "toneladas");
   }
   if (material) fields.material = material[1].trim();
+  if (!fields.material) {
+    const beforeQty = text.match(
+      /\b([A-Za-zÀ-ú]+)\s+(\d+(?:[.,]\d+)?)\s*(toneladas?|t\b|m[³3]|kg)\b/i,
+    );
+    if (beforeQty && !isReservedWord(beforeQty[1])) {
+      fields.material = beforeQty[1].trim();
+    }
+  }
+  if (!fields.material) {
+    const lone = text.trim().match(/^(?:foi|era)\s+([A-Za-zÀ-ú]+)$/i) ?? text.trim().match(/^([A-Za-zÀ-ú]+)$/i);
+    if (lone && !isReservedWord(lone[1])) fields.material = lone[1].trim();
+  }
   if (unitPrice) fields.unitPrice = parseNumber(unitPrice[1]);
   if (freightTotal && freightTotal.index !== undefined) {
     const around = text.slice(freightTotal.index, freightTotal.index + 20);
@@ -117,10 +179,15 @@ export function looksLikeAdminCommand(text: string): boolean {
 }
 
 export function isDeferral(text: string): boolean {
+  const normalized = text.trim();
   return (
-    /agora n[aã]o posso\b/i.test(text) ||
-    /agora n[aã]o( consigo)?/i.test(text) ||
-    /n[aã]o posso (falar|responder) agora/i.test(text)
+    /agora n[aã]o posso\b/i.test(normalized) ||
+    /agora n[aã]o( consigo)?/i.test(normalized) ||
+    /n[aã]o consigo falar agora/i.test(normalized) ||
+    /n[aã]o posso (falar|responder) agora/i.test(normalized) ||
+    /te mando depois/i.test(normalized) ||
+    /mais tarde eu mando/i.test(normalized) ||
+    /depois respondo/i.test(normalized)
   );
 }
 
@@ -131,6 +198,16 @@ export function extractFromText(
 ): Extracted | undefined {
   const kind = detectKind(text);
   if (!kind) return undefined;
+  return extractComplement(kind, text, sentAt, vehicleHint);
+}
+
+/** Extrai campos de um tipo já conhecido, sem exigir a palavra da categoria. */
+export function extractComplement(
+  kind: RecordKind,
+  text: string,
+  sentAt: Date,
+  vehicleHint?: string,
+): Extracted {
   if (kind === "abastecimento") {
     return { kind, abastecimento: extractAbastecimento(text, sentAt, vehicleHint) };
   }
@@ -138,4 +215,27 @@ export function extractFromText(
     return { kind, despesa: extractDespesa(text, sentAt, vehicleHint) };
   }
   return { kind, viagem: extractViagem(text, sentAt, vehicleHint) };
+}
+
+const NEW_EVENT_CORE: Record<RecordKind, string[]> = {
+  abastecimento: ["liters", "totalBrl"],
+  despesa: ["amountBrl"],
+  viagem: ["origin", "destination", "quantity"],
+};
+
+export function isNewOperationalEvent(
+  extracted: Extracted | undefined,
+  pendingKind: RecordKind,
+  pendingFields: Record<string, string | number | undefined> | undefined,
+): boolean {
+  if (!extracted) return false;
+  if (extracted.kind !== pendingKind) return true;
+  const incoming =
+    extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {};
+  const existing = pendingFields ?? {};
+  return NEW_EVENT_CORE[pendingKind].some((key) => {
+    const next = incoming[key];
+    const prev = existing[key];
+    return next !== undefined && next !== "" && prev !== undefined && prev !== "";
+  });
 }
