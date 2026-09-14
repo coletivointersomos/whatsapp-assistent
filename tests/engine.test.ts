@@ -279,4 +279,87 @@ describe("engine", () => {
     assert.equal(listed.replies[0].text, "Nenhuma suspensão ativa.");
     assert.equal(state.suspensions[0].status, "aplicada");
   });
+
+  it("does not pause from a spoofed authorRole when the JID is the driver", () => {
+    const state = seedState();
+    const result = run(
+      state,
+      msg({
+        externalId: "spoof-1",
+        authorId: "motorista-joao",
+        authorRole: "alana",
+        text: "já vi aqui",
+      }),
+    );
+    assert.equal(result.decision, "ignored");
+    assert.equal(state.pauses.length, 0);
+  });
+
+  it("keeps Alana pause local to the conversation where she spoke", () => {
+    const state = seedState();
+    run(
+      state,
+      msg({
+        externalId: "alana-joao",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "já vi aqui",
+      }),
+    );
+    const ana = run(
+      state,
+      msg({
+        externalId: "ana-1",
+        conversationId: "conv-ana",
+        authorId: "motorista-ana",
+        text: "abasteci 150 litros, deu 980, assinada",
+      }),
+    );
+    assert.equal(ana.decision, "record_incomplete");
+    assert.equal(ana.replies.length, 1);
+    assert.equal(state.pauses.some((p) => p.conversationId === "conv-ana"), false);
+  });
+
+  it("does not renew pause on driver or bot messages", () => {
+    const state = seedState();
+    state.botIds = ["bot-lab@c.us"];
+    const pause = run(
+      state,
+      msg({
+        externalId: "alana-1",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "já vi aqui",
+      }),
+    );
+    const until = pause.pause?.silenceUntil;
+    run(
+      state,
+      msg({
+        externalId: "drv-keep",
+        text: "abasteci 150 litros, deu 980, assinada",
+      }),
+      new Date(T0.getTime() + 2 * 60 * 1000),
+    );
+    run(
+      state,
+      msg({
+        externalId: "bot-keep",
+        authorId: "bot-lab@c.us",
+        authorRole: "bot",
+        text: "Faltam data e local/posto. Pode informar?",
+      }),
+      new Date(T0.getTime() + 3 * 60 * 1000),
+    );
+    assert.equal(state.pauses[0].silenceUntil, until);
+    assert.equal(state.pauses[0].lastAlanaMessageId, "alana-1");
+  });
+
+  it("treats 'agora não posso' as deferral, not administrative pause", () => {
+    const state = seedState();
+    const result = run(state, msg({ externalId: "def-1", text: "agora não posso" }));
+    assert.equal(result.decision, "deferred");
+    assert.equal(state.pauses.length, 0);
+    assert.equal(result.replies.length, 0);
+  });
 });

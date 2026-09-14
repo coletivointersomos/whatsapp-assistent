@@ -7,6 +7,11 @@ import {
   isPauseActive,
   isSuspensionCovering,
 } from "../domain/rules.ts";
+import {
+  findDriverByAuthor,
+  isPrincipalDriver,
+  resolveAuthorRole,
+} from "../domain/identity.ts";
 import type {
   AppState,
   BotReply,
@@ -130,14 +135,24 @@ export function processMessage(
     return { decision: "rejected_unauthorized", duplicate: false, replies: [], rejected };
   }
 
-  const stored = { ...inbound, processedAt: now.toISOString() };
+  const authorRole = resolveAuthorRole(state, inbound.authorId);
+  const stored = {
+    ...inbound,
+    authorRole,
+    participantId: inbound.participantId ?? inbound.authorId,
+    processedAt: now.toISOString(),
+  };
   state.messages.push(stored);
+
+  if (authorRole === "bot") {
+    return { decision: "ignored", duplicate: false, message: stored, replies: [] };
+  }
 
   if (conversation.role === "central") {
     return handleCentral(state, stored, now);
   }
 
-  if (inbound.authorRole === "alana" || inbound.authorId === state.admin.id) {
+  if (authorRole === "alana") {
     const sentAt = new Date(inbound.sentAt);
     const silenceUntil = new Date(sentAt.getTime() + PAUSE_MS).toISOString();
     const pause: ConversationPause = {
@@ -150,6 +165,10 @@ export function processMessage(
     if (idx >= 0) state.pauses[idx] = pause;
     else state.pauses.push(pause);
     return { decision: "pause_updated", duplicate: false, message: stored, replies: [], pause };
+  }
+
+  if (authorRole !== "motorista" || !isPrincipalDriver(state, conversation.driverId, inbound.authorId)) {
+    return { decision: "ignored", duplicate: false, message: stored, replies: [] };
   }
 
   const text = inbound.text?.trim() ?? "";
@@ -190,13 +209,27 @@ export function processMessage(
   }
 
   if (!text) {
-    return { decision: "ignored", duplicate: false, message: stored, replies: [] };
+    const replies = considerResume(state, conversation.id, { now: () => now });
+    return {
+      decision: "ignored",
+      duplicate: false,
+      message: stored,
+      replies: snapshotReplies(replies),
+    };
   }
 
-  const driver = state.drivers.find((d) => d.id === conversation.driverId);
+  const driver =
+    findDriverByAuthor(state, inbound.authorId) ??
+    state.drivers.find((d) => d.id === conversation.driverId);
   const extracted = extractFromText(text, new Date(inbound.sentAt), driver?.vehicleHint);
   if (!extracted || !conversation.driverId) {
-    return { decision: "ignored", duplicate: false, message: stored, replies: [] };
+    const replies = considerResume(state, conversation.id, { now: () => now });
+    return {
+      decision: "ignored",
+      duplicate: false,
+      message: stored,
+      replies: snapshotReplies(replies),
+    };
   }
 
   const record: OperationalRecord = {
@@ -241,8 +274,7 @@ function detectsKind(text: string): boolean {
 }
 
 function handleCentral(state: AppState, stored: StoredMessage, now: Date): ProcessResult {
-  const allowed =
-    stored.authorRole === "alana" || stored.authorId === state.admin.id;
+  const allowed = resolveAuthorRole(state, stored.authorId) === "alana";
 
   if (!allowed) {
     const command = {

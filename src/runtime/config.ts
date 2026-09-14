@@ -50,8 +50,9 @@ export function overlayChannelFromEnv(
   const adminIds = parseCsv(env.ADMIN_IDS);
   const botIds = parseCsv(env.BOT_IDS);
   const allowed = parseCsv(env.ALLOWED_JIDS);
+  const driverJids = parseCsv(env.DRIVER_JIDS);
   const byId = new Map(channel.conversations.map((c) => [c.conversationId, c]));
-  const conversations = allowed.length
+  let conversations = allowed.length
     ? allowed.map(
         (conversationId) =>
           byId.get(conversationId) ?? {
@@ -60,6 +61,16 @@ export function overlayChannelFromEnv(
           },
       )
     : channel.conversations;
+  if (driverJids.length) {
+    conversations = conversations.map((c) => {
+      const matchesTest = Boolean(testGroupJid) && c.conversationId === testGroupJid;
+      if (!matchesTest) return c;
+      return {
+        ...c,
+        driverJids: [...new Set([...(c.driverJids ?? []), ...driverJids])],
+      };
+    });
+  }
   return {
     ...channel,
     sessionId,

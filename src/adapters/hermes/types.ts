@@ -16,6 +16,9 @@ export type OpenWaMessageData = {
   chatId?: string;
   from?: string;
   author?: string;
+  participant?: string;
+  participantId?: string;
+  sender?: string;
   fromMe?: boolean;
   isGroup?: boolean;
   isStatusBroadcast?: boolean;
@@ -35,10 +38,19 @@ export type OpenWaEnvelope = {
   data?: OpenWaMessageData;
 };
 
+export type ChannelDriver = {
+  id: string;
+  name?: string;
+  jids: string[];
+  vehicleHint?: string;
+};
+
 export type ChannelConversation = {
   conversationId: string;
   role: "motorista" | "central";
   driverId?: string;
+  /** JIDs do motorista principal neste grupo/chat. */
+  driverJids?: string[];
   label?: string;
 };
 
@@ -46,6 +58,7 @@ export type ChannelConfig = {
   sessionId: string;
   adminIds: string[];
   botIds: string[];
+  drivers?: ChannelDriver[];
   /** JID do único chat que pode receber envio real neste teste controlado. */
   testGroupJid?: string;
   conversations: ChannelConversation[];

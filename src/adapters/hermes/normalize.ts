@@ -1,5 +1,7 @@
-import type { AuthorRole, InboundMessage, MessageType } from "../../domain/types.ts";
-import type { ChannelConfig, OpenWaEnvelope } from "./types.ts";
+import type { InboundMessage, MessageType } from "../../domain/types.ts";
+import { jidInList } from "../../domain/identity.ts";
+import { isGroupJid, resolveChannelAuthorRole } from "./identity.ts";
+import type { ChannelConfig, OpenWaEnvelope, OpenWaMessageData } from "./types.ts";
 
 export type NormalizeOk = { ok: true; inbound: InboundMessage };
 export type NormalizeFail = {
@@ -40,12 +42,13 @@ function sentAtIso(timestamp: number | string | undefined): string {
   return new Date().toISOString();
 }
 
-function authorRole(authorId: string, channel: ChannelConfig, chatRole: "motorista" | "central"): AuthorRole {
-  if (channel.botIds.includes(authorId)) return "bot";
-  if (channel.adminIds.includes(authorId)) return "alana";
-  if (chatRole === "motorista") return "motorista";
-  if (chatRole === "central") return "desconhecido";
-  return "desconhecido";
+function participantJid(data: OpenWaMessageData, group: boolean): string | undefined {
+  if (group) {
+    const value = data.author || data.participant || data.participantId || data.sender || data.from;
+    return isJid(value) ? value : undefined;
+  }
+  const value = data.from || data.author || data.sender;
+  return isJid(value) ? value : undefined;
 }
 
 export function normalizeOpenWaEnvelope(
@@ -77,9 +80,13 @@ export function normalizeOpenWaEnvelope(
     return { ok: false, reason: "self_or_status" };
   }
 
-  const group = chatId.endsWith("@g.us");
-  const authorId = group ? data.author : data.from ?? data.author;
-  if (!isJid(authorId)) return { ok: false, reason: "invalid_payload" };
+  const group = data.isGroup === true || isGroupJid(chatId);
+  const authorId = participantJid(data, group);
+  if (!authorId) return { ok: false, reason: "invalid_payload" };
+
+  if (jidInList(authorId, channel.botIds)) {
+    return { ok: false, reason: "self_or_status" };
+  }
 
   const mid = data.id || data.messageId;
   if (!isJid(mid)) return { ok: false, reason: "invalid_payload" };
@@ -87,12 +94,14 @@ export function normalizeOpenWaEnvelope(
   const text = (data.body || data.caption || "").trim() || undefined;
   const mimetype = data.media?.mimetype;
   const type = messageType(data.type, mimetype);
+  const authorRole = resolveChannelAuthorRole(authorId, channel, allowed);
 
   const inbound: InboundMessage = {
     externalId: mid,
     conversationId: chatId,
     authorId,
-    authorRole: authorRole(authorId, channel, allowed.role),
+    authorRole,
+    participantId: authorId,
     sentAt: sentAtIso(data.timestamp),
     type,
     text,

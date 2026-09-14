@@ -25,7 +25,7 @@ const channel: ChannelConfig = {
   adminIds: ["alana-lab@c.us"],
   botIds: ["bot-lab@c.us"],
   conversations: [
-    { conversationId: TEST_GROUP, role: "motorista", driverId: "motorista-joao" },
+    { conversationId: TEST_GROUP, role: "motorista", driverId: "motorista-joao", driverJids: [OTHER] },
     { conversationId: OTHER, role: "motorista", driverId: "motorista-joao" },
     { conversationId: "chat-central@c.us", role: "central" },
   ],
@@ -229,6 +229,14 @@ describe("controlled live send", () => {
     );
     assert.equal(loaded.sessionId, "sessao-definitiva");
     assert.equal(loaded.channel.conversations.length, 6);
+  });
+
+  it("overlays DRIVER_JIDS only onto TEST_GROUP_JID", () => {
+    const next = overlayChannelFromEnv(channel, { DRIVER_JIDS: "joao-real@c.us" });
+    const group = next.conversations.find((c) => c.conversationId === TEST_GROUP);
+    const other = next.conversations.find((c) => c.conversationId === OTHER);
+    assert.ok(group?.driverJids?.includes("joao-real@c.us"));
+    assert.equal(other?.driverJids?.includes("joao-real@c.us") ?? false, false);
   });
 
   it("accepts multiple authorized chats from config without sending to them", async () => {

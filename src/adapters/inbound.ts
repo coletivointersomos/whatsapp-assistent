@@ -9,6 +9,7 @@ export function normalizeInbound(input: InboundMessage): InboundMessage {
     conversationId: input.conversationId,
     authorId: input.authorId,
     authorRole: input.authorRole,
+    participantId: input.participantId ?? input.authorId,
     sentAt: input.sentAt,
     type: input.type,
     text: input.text,

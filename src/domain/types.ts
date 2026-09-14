@@ -10,11 +10,15 @@ export type Driver = {
   id: string;
   name: string;
   vehicleHint?: string;
+  /** JIDs WhatsApp do motorista (participante). Identidade não vem do texto. */
+  jids?: string[];
 };
 
 export type Admin = {
   id: string;
   name: string;
+  /** JIDs WhatsApp da Alana/admin. */
+  jids?: string[];
 };
 
 export type Conversation = {
@@ -30,6 +34,8 @@ export type InboundMessage = {
   conversationId: string;
   authorId: string;
   authorRole: AuthorRole;
+  /** Participante do grupo (`author` / `participant` OpenWA). Em 1:1 coincide com authorId. */
+  participantId?: string;
   sentAt: string;
   type: MessageType;
   text?: string;
@@ -127,6 +133,8 @@ export type BotReply = {
 
 export type AppState = {
   admin: Admin;
+  /** JIDs da sessão/bot. Mensagens desses JIDs são ignoradas (não pausam, não extraem). */
+  botIds: string[];
   drivers: Driver[];
   conversations: Conversation[];
   messages: StoredMessage[];

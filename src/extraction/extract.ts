@@ -117,7 +117,11 @@ export function looksLikeAdminCommand(text: string): boolean {
 }
 
 export function isDeferral(text: string): boolean {
-  return /agora n[aã]o( consigo)?/i.test(text) || /n[aã]o posso (falar|responder) agora/i.test(text);
+  return (
+    /agora n[aã]o posso\b/i.test(text) ||
+    /agora n[aã]o( consigo)?/i.test(text) ||
+    /n[aã]o posso (falar|responder) agora/i.test(text)
+  );
 }
 
 export function extractFromText(

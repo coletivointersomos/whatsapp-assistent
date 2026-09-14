@@ -3,6 +3,7 @@ import type { AppState } from "../domain/types.ts";
 export function seedState(): AppState {
   return {
     admin: { id: "alana", name: "Alana" },
+    botIds: [],
     drivers: [
       { id: "motorista-joao", name: "João", vehicleHint: "caminhão 1" },
       { id: "motorista-ana", name: "Ana", vehicleHint: "caminhão 2" },

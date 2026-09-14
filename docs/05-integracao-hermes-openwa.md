@@ -78,7 +78,7 @@ Desligar: `LIVE_SEND=false` e reiniciar **este** serviço (não o lab). Log de a
 
 ## 5. Allowlist
 
-Fonte: `CHANNEL_FILE` e/ou `ALLOWED_JIDS`, `ADMIN_IDS`, `BOT_IDS`. Placeholders em `config/channel.example.json`. Config viva (`config/channel.json`, `.env`) **não** vai no git.
+Fonte: `CHANNEL_FILE` e/ou `ALLOWED_JIDS`, `ADMIN_IDS`, `BOT_IDS`, `DRIVER_JIDS`. Placeholders em `config/channel.example.json`. Config viva (`config/channel.json`, `.env`) **não** vai no git.
 
 Trava em três camadas:
 

@@ -10,11 +10,13 @@ const channel: ChannelConfig = {
   sessionId: "sessao-lab-substituivel",
   adminIds: ["alana-lab@c.us"],
   botIds: ["bot-lab@c.us"],
+  drivers: [{ id: "motorista-joao", jids: ["chat-motorista-1@c.us"] }],
   conversations: [
     {
       conversationId: "grupo-lab-teste@g.us",
       role: "motorista",
       driverId: "motorista-joao",
+      driverJids: ["chat-motorista-1@c.us"],
     },
     {
       conversationId: "chat-motorista-1@c.us",
@@ -49,6 +51,7 @@ describe("hermes/openwa adapter", () => {
     assert.equal(result.inbound.conversationId, "grupo-lab-teste@g.us");
     assert.equal(result.inbound.authorId, "chat-motorista-1@c.us");
     assert.equal(result.inbound.authorRole, "motorista");
+    assert.equal(result.inbound.participantId, "chat-motorista-1@c.us");
     assert.equal(result.inbound.type, "texto");
     assert.equal(result.inbound.externalId, "g1");
     assert.match(result.inbound.sentAt, /T/);
@@ -178,5 +181,76 @@ describe("hermes/openwa adapter", () => {
     const d = processMessage(state, dm.inbound, { now: () => new Date(dm.inbound.sentAt) });
     assert.equal(d.decision, "record_created");
     assert.equal(d.record?.kind, "despesa");
+  });
+
+  it("reads group participant from participant/participantId when author is absent", () => {
+    const result = normalizeOpenWaEnvelope(
+      env({
+        id: "p1",
+        chatId: "grupo-lab-teste@g.us",
+        isGroup: true,
+        participant: "chat-motorista-1@c.us",
+        body: "hoje abasteci 200 litros no posto X deu 1200 pago",
+        type: "chat",
+        timestamp: 1757520000,
+      }),
+      channel,
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.inbound.authorId, "chat-motorista-1@c.us");
+    assert.equal(result.inbound.participantId, "chat-motorista-1@c.us");
+    assert.equal(result.inbound.authorRole, "motorista");
+  });
+
+  it("ignores the bot's own messages via fromMe and via botIds", () => {
+    const fromMe = normalizeOpenWaEnvelope(
+      env({
+        id: "bot-1",
+        chatId: "grupo-lab-teste@g.us",
+        author: "bot-lab@c.us",
+        fromMe: true,
+        body: "Faltam data e local/posto. Pode informar?",
+        type: "chat",
+        timestamp: 1757520000,
+      }),
+      channel,
+    );
+    assert.equal(fromMe.ok, false);
+    if (!fromMe.ok) assert.equal(fromMe.reason, "self_or_status");
+
+    const echo = normalizeOpenWaEnvelope(
+      env({
+        id: "bot-2",
+        chatId: "grupo-lab-teste@g.us",
+        author: "bot-lab@c.us",
+        fromMe: false,
+        isGroup: true,
+        body: "Faltam data e local/posto. Pode informar?",
+        type: "chat",
+        timestamp: 1757520000,
+      }),
+      channel,
+    );
+    assert.equal(echo.ok, false);
+    if (!echo.ok) assert.equal(echo.reason, "self_or_status");
+  });
+
+  it("does not treat an unknown group participant as the principal driver", () => {
+    const result = normalizeOpenWaEnvelope(
+      env({
+        id: "unk-1",
+        chatId: "grupo-lab-teste@g.us",
+        author: "outro-participante@c.us",
+        isGroup: true,
+        body: "hoje abasteci 200 litros no posto X deu 1200 pago",
+        type: "chat",
+        timestamp: 1757520000,
+      }),
+      channel,
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.inbound.authorRole, "desconhecido");
   });
 });
