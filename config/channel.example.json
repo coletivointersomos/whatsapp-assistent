@@ -1,0 +1,58 @@
+{
+  "sessionId": "sessao-lab-substituivel",
+  "testGroupJid": "grupo-lab-teste@g.us",
+  "adminIds": ["alana-lab@c.us"],
+  "botIds": ["bot-lab@c.us"],
+  "drivers": [
+    {
+      "id": "motorista-joao",
+      "name": "João",
+      "jids": ["chat-motorista-1@c.us"],
+      "vehicleHint": "caminhão 1"
+    },
+    {
+      "id": "motorista-ana",
+      "name": "Ana",
+      "jids": ["chat-motorista-2@c.us"],
+      "vehicleHint": "caminhão 2"
+    }
+  ],
+  "conversations": [
+    {
+      "conversationId": "grupo-lab-teste@g.us",
+      "role": "motorista",
+      "driverId": "motorista-joao",
+      "driverJids": ["chat-motorista-1@c.us"],
+      "label": "Grupo de validação (não é produção)"
+    },
+    {
+      "conversationId": "chat-motorista-1@c.us",
+      "role": "motorista",
+      "driverId": "motorista-joao",
+      "label": "Placeholder motorista 1"
+    },
+    {
+      "conversationId": "chat-motorista-2@c.us",
+      "role": "motorista",
+      "driverId": "motorista-ana",
+      "label": "Placeholder motorista 2"
+    },
+    {
+      "conversationId": "chat-motorista-3@c.us",
+      "role": "motorista",
+      "driverId": "motorista-joao",
+      "label": "Placeholder motorista 3"
+    },
+    {
+      "conversationId": "chat-motorista-4@c.us",
+      "role": "motorista",
+      "driverId": "motorista-ana",
+      "label": "Placeholder motorista 4"
+    },
+    {
+      "conversationId": "chat-central@c.us",
+      "role": "central",
+      "label": "Placeholder central de comando"
+    }
+  ]
+}

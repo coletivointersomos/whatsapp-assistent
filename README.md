@@ -1,30 +1,31 @@
-# Transportadora AI
+# Assistente WhatsApp — Alana Transportes
 
-Sistema operacional para registrar despesas da frota a partir de áudios e fotos enviados pelos motoristas no WhatsApp.
+Documentação do produto em `docs/`. Fundação local da Fase 1 em `src/` (sem Hermes, WhatsApp, Google ou VPS reais). Integração Hermes/VPS fica para uma etapa futura de comparação/adaptação.
 
-> A IA organiza. A administração confirma. O sistema registra.
+## Demonstração
 
-Este repositório está na etapa de **organização da documentação**. O código da aplicação ainda não começa.
+```bash
+npm install
+npm test
+npm run typecheck
+npm run simulate
+npm run schedule:preview
+npm run sheets:preview
+```
+
+`schedule:preview` e `sheets:preview` usam um estado demo previsível. Se existir `data/store.json`, eles leem esse arquivo; `--demo` força o demo.
+
+Um cenário do simulador: `npm run simulate -- --file fixtures/abastecimento-completo.json`
+
+## Stack
+
+Node.js + TypeScript. Persistência JSON local. Extração determinística (sem IA).
 
 ## Pastas
 
 | Pasta | Para quê |
 |---|---|
-| `docs/especificacao` | O que vamos construir (Fase 1 e evoluções) |
-| `docs/decisoes` | Escolhas técnicas, uma por vez, antes de implementar |
-| `docs/piloto` | Cadastros, contas e pendências do piloto com Alana |
-| `docs/setup` | Como configurar ambientes — preenchido quando o código existir |
-
-## Regra de trabalho
-
-1. Documentar o acordo.
-2. Registrar decisões em aberto.
-3. Só então criar o projeto de software.
-
-## Status
-
-- [x] Repositório GitHub conectado (`whatsapp-assistent`)
-- [x] Especificação da Fase 1 versionada
-- [ ] Decisões do item 14 da spec
-- [ ] Stack e ambientes
-- [ ] Implementação
+| `docs/` | Produto, funcionamento, pendências, spec do MVP |
+| `src/` | Domínio, extração, engine, persistência, CLI, previews |
+| `fixtures/` | Mensagens simuladas |
+| `tests/` | Fluxos da fundação e previews |

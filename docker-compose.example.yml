@@ -1,0 +1,36 @@
+# Exemplo — NÃO é deploy. Não usar compose down em stacks existentes.
+# Serviço novo: hermes-arnaldo-transportadora (porta 8791, não 8790 do lab).
+#
+# LIVE_SEND deve permanecer false até autorização explícita do teste no grupo.
+
+services:
+  hermes-arnaldo-transportadora:
+    build: .
+    container_name: hermes-arnaldo-transportadora
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      LIVE_SEND: "false"
+      HMAC_REQUIRED: "true"
+      PORT: "8791"
+      STORE_PATH: /data/store.json
+      CHANNEL_FILE: /app/config/channel.example.json
+    ports:
+      - "127.0.0.1:8791:8791"
+    volumes:
+      - hermes-arnaldo-transportadora-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8791/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  hermes-arnaldo-transportadora-data:
+
+# Para o teste real autorizado, juntar a rede do openwa-api (sem alterar lab/bridge):
+# networks:
+#   default:
+#     name: docker_default
+#     external: true
