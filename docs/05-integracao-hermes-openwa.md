@@ -162,4 +162,44 @@ npm run start   # exige config; para smoke local: HMAC_REQUIRED=false LIVE_SEND=
 `hermes-arnaldo-lab`: `/opt/hermes-arnaldo-lab`, porta interna 8790.  
 `hermes-wa-bridge`: irmão; não compartilhar webhook.  
 Entrada: `{ event, sessionId, data }` com `chatId` / `author` / `from`.  
-Esta etapa **não** alterou a VPS.
+A VPS / OpenWA / lab / bridge **não** são alterados por esta atualização de evidência e CLI.
+
+## 13. Evidência — demo real de complemento (grupo exclusivo)
+
+Validado no WhatsApp, grupo exclusivo mascarado `…3923@g.us` (fingerprint `56740fa990`). JIDs completos não entram neste doc.
+
+| Passo | Quem | Texto |
+|---|---|---|
+| 1 | Motorista | `abasteci 150 litros, deu 980, assinada` |
+| 2 | Bot | `Foi hoje? E qual foi o posto?` |
+| 3 | Motorista | `isso, posto jacinto` |
+| 4 | Bot | `Foi hoje ou outro dia?` |
+| 5 | Motorista | `hoje` |
+| 6 | Bot | `Fechado, registrei esse abastecimento.` |
+
+Estado observado:
+
+- um único registro de abastecimento;
+- três `sourceMessageIds` (mensagem inicial + dois complementos);
+- posto = `posto jacinto`;
+- data = o dia do `sentAt` da mensagem `hoje`;
+- status final = `completo`;
+- sem duplicata;
+- envio restrito ao grupo exclusivo (`TEST_GROUP_JID`).
+
+O `data/store.json` (local ou volume) pode ainda misturar testes antigos. Para inspecionar **só** o recorte recente / grupo exclusivo, sem apagar nada:
+
+```bash
+# grupo exclusivo (TEST_GROUP_JID no .env) + últimas 48h
+npm run records:preview
+
+# outra conversa (JID completo só no terminal local, não neste doc)
+npm run records:preview -- --conversation "<JID>" --since 2026-09-14
+
+# ver tudo (ainda mascarado)
+npm run records:preview -- --all-conversations --all-time
+```
+
+`--file` aponta para uma cópia do store, se necessário. O comando é somente leitura.
+
+**Limpeza do store:** não há purge automático. Recortar testes antigos exige cópia de backup + aprovação explícita antes de qualquer escrita no store vivo.
