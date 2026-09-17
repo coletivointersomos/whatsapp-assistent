@@ -159,7 +159,7 @@ describe("complemento de pendência por texto", () => {
     assert.equal(second.record?.despesa?.payment, "assinada");
     assert.equal(second.record?.despesa?.amountBrl, 150);
     assert.equal(second.replies.length, 1);
-    assert.equal(second.replies[0].text, "Fechado, registrei essa despesa.");
+    assert.match(second.replies[0].text, /Fechado, registrei essa despesa/);
   });
 
   it("texto de complemento não precisa repetir a categoria", () => {

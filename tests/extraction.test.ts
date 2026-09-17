@@ -105,6 +105,11 @@ describe("extractComplement", () => {
 
     const f = extractComplement("despesa", "foi com almoço", sentAt);
     assert.equal(f.despesa?.description, "almoço");
+
+    const pix = extractComplement("despesa", "o gasto do eletricista foi 250 no pix", sentAt);
+    assert.equal(pix.despesa?.amountBrl, 250);
+    assert.equal(pix.despesa?.payment, "pix");
+    assert.equal(pix.despesa?.description, "eletricista");
   });
 
   it("fills viagem quantity, unit, route and material without repeating viagem", () => {

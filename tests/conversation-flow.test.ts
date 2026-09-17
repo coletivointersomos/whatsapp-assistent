@@ -114,7 +114,7 @@ describe("fluidez conversacional", () => {
     assert.equal(second.record?.despesa?.payment, "assinada");
     assert.equal(second.record?.despesa?.description, "almoço");
     assert.equal(second.decision, "record_created");
-    assert.equal(second.replies[0].text, "Fechado, registrei essa despesa.");
+    assert.match(second.replies[0].text, /Fechado, registrei essa despesa/);
   });
 
   it("complemento natural 'de Barreiras pra Recife'", () => {

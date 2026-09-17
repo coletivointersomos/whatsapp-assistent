@@ -51,7 +51,13 @@ export function validateNluResult(input: unknown): NluResult {
     }
     if (Object.keys(fields).length) result.fields = fields;
   }
+  const recordTypeRaw = String(obj.record_type ?? obj.recordType ?? "");
+  if (recordTypeRaw === "abastecimento" || recordTypeRaw === "despesa" || recordTypeRaw === "viagem") {
+    result.recordType = recordTypeRaw;
+  }
   if (typeof obj.target === "string" && obj.target.trim()) result.target = obj.target.trim();
+  const targetId = obj.target_record_id ?? obj.targetRecordId;
+  if (typeof targetId === "string" && targetId.trim()) result.targetRecordId = targetId.trim();
   if (typeof obj.reply === "string" && obj.reply.trim()) result.reply = obj.reply.trim();
   if (obj.requiresConfirmation === true) result.requiresConfirmation = true;
   if (typeof obj.unsafeReason === "string" && obj.unsafeReason.trim()) {

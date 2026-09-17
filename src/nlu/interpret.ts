@@ -31,6 +31,7 @@ export function looksLikeDriverStatus(text: string): boolean {
     /\bcheguei\b/.test(n) ||
     /\bdescarregando\b/.test(n) ||
     /\bparei no posto\b/.test(n) ||
+    /\bparei em\b/.test(n) ||
     /\batrasou\b/.test(n) ||
     /\bbr[\s-]?\d+/.test(n) ||
     /\bainda em\b/.test(n)

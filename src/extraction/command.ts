@@ -44,7 +44,27 @@ export function parseCentralCommand(text: string): ParsedCommand {
   return { type: "none", ambiguous: false };
 }
 
-export function questionForMissing(_kind: string, missing: string[]): string {
+export function questionForMissing(
+  kind: string,
+  missing: string[],
+  hint?: { description?: string },
+): string {
+  if (kind === "despesa") {
+    const name = hint?.description?.trim() ? ` com ${hint.description.trim()}` : "";
+    const needVal = missing.includes("amountBrl");
+    const needDate = missing.includes("date");
+    const needPay = missing.includes("payment");
+    if (needVal && (needPay || needDate)) {
+      if (needPay) return `Entendi o gasto${name}. Qual foi o valor e como foi pago?`;
+      return `Entendi o gasto${name}. Qual foi o valor e em que dia aconteceu?`;
+    }
+    if (needVal) return `Qual foi o valor desse gasto${name}?`;
+    if (missing.includes("description") && needPay) return "O que foi? Foi pago ou assinada?";
+    if (missing.includes("description")) return "O que foi essa despesa?";
+    if (needPay) return "Foi pago ou ficou assinada?";
+    if (needDate) return "Foi hoje ou outro dia?";
+  }
+
   const same = (...keys: string[]) =>
     missing.length === keys.length && keys.every((key) => missing.includes(key));
 
@@ -83,4 +103,18 @@ export function confirmationForKind(kind: string): string {
   if (kind === "despesa") return "Fechado, registrei essa despesa.";
   if (kind === "viagem") return "Fechado, registrei essa viagem.";
   return "Fechado, registrei esse abastecimento.";
+}
+
+export function confirmationForRecord(kind: string, record: { despesa?: { amountBrl?: number; description?: string; payment?: string } }): string {
+  if (kind !== "despesa" || !record.despesa) return confirmationForKind(kind);
+  const d = record.despesa;
+  const bits: string[] = [];
+  if (d.amountBrl !== undefined) bits.push(`de R$ ${d.amountBrl}`);
+  if (d.description) bits.push(`com ${d.description}`);
+  if (d.payment === "pix") bits.push("no pix");
+  else if (d.payment === "assinada") bits.push("como assinada");
+  else if (d.payment === "pago") bits.push("pago");
+  else if (d.payment) bits.push(`no ${d.payment}`);
+  if (!bits.length) return confirmationForKind("despesa");
+  return `Fechado, registrei essa despesa ${bits.join(" ")}.`;
 }

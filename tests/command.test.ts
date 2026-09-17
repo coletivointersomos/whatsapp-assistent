@@ -36,6 +36,10 @@ describe("perguntas e confirmações curtas", () => {
       questionForMissing("abastecimento", ["date", "place"]),
       "Foi hoje? E qual foi o posto?",
     );
+    assert.equal(
+      questionForMissing("despesa", ["amountBrl", "date", "payment"], { description: "eletricista" }),
+      "Entendi o gasto com eletricista. Qual foi o valor e como foi pago?",
+    );
     assert.equal(questionForMissing("despesa", ["payment"]), "Foi pago ou ficou assinada?");
     assert.equal(
       questionForMissing("viagem", ["origin", "destination"]),

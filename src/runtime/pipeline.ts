@@ -3,9 +3,7 @@ import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
 import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import type { AppState } from "../domain/types.ts";
-import { processMessage, type Clock } from "../engine/process.ts";
-import { buildNluContext } from "../nlu/context.ts";
-import { gateSensitiveIntent } from "../nlu/gate.ts";
+import { processMessage, processMessageAsync, type Clock } from "../engine/process.ts";
 import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
@@ -51,39 +49,22 @@ export async function handleInboundPayload(input: {
 
   const inbound = normalized.inbound;
   const nluConfig = loadNluConfig(process.env);
-  const nlu = createNluProvider(nluConfig);
+  const nlu = input.clock?.nlu ?? createNluProvider(nluConfig);
+  const llmFirst =
+    input.clock?.nluFirst === true ||
+    (input.clock?.nluFirst !== false && canCallRemoteLlm(nluConfig) && input.clock?.nluEnabled !== false);
   const clock: Clock = {
     now: input.clock?.now ?? (() => new Date(inbound.sentAt)),
     nluEnabled: input.clock?.nluEnabled,
-    nlu: input.clock?.nlu,
+    nlu,
+    nluFirst: llmFirst,
   };
-  const processed = processMessage(state, inbound, clock);
+  const processed = llmFirst
+    ? await processMessageAsync(state, inbound, clock)
+    : processMessage(state, inbound, clock);
 
-  if (
-    canCallRemoteLlm(nluConfig) &&
-    nlu &&
-    processed.replies.length === 0 &&
-    processed.message &&
-    (processed.decision === "ignored" || processed.decision === "pause_updated")
-  ) {
-    const isAdmin = processed.message.authorRole === "alana";
-    const conversation = state.conversations.find(
-      (c) => c.id === inbound.conversationId || c.externalId === inbound.conversationId,
-    );
-    const ctx = buildNluContext(state, inbound, {
-      authorRole: processed.message.authorRole,
-      isAdmin,
-      now: clock.now(),
-      driverId: conversation?.driverId,
-    });
-    const interpreted = gateSensitiveIntent(await nlu.interpret(ctx), isAdmin);
-    if (interpreted.reply) {
-      const reply = { conversationId: inbound.conversationId, text: interpreted.reply };
-      state.botReplies.push(reply);
-      processed.replies.push(reply);
-      processed.decision = "assisted";
-    }
-    log("nlu_followup", { intent: interpreted.intent, provider: nlu.name });
+  if (llmFirst) {
+    log("nlu_first", { provider: nlu?.name ?? "none", decision: processed.decision });
   }
 
   log("engine_decision", {

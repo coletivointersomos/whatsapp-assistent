@@ -18,15 +18,26 @@ export type NluIntentName = (typeof NLU_INTENTS)[number];
 export const NLU_ACTIONS = [
   "none",
   "reply",
+  "create_record",
+  "update_record",
+  "complete_record",
   "store_status_update",
+  "answer_question",
+  "sheet_summary",
+  "sheet_change_request",
+  "broadcast_request",
+  "ask_driver_followup",
   "request_confirmation",
   "block_sheets",
   "block_broadcast",
+  "unknown",
 ] as const;
 
 export type NluActionName = (typeof NLU_ACTIONS)[number];
 
 export type NluFields = Record<string, string | number>;
+
+export type NluRecordType = "abastecimento" | "despesa" | "viagem";
 
 export type NluResult = {
   intent: NluIntentName;
@@ -34,7 +45,9 @@ export type NluResult = {
   confidence: number;
   reasoning_summary: string;
   fields?: NluFields;
+  recordType?: NluRecordType;
   target?: string;
+  targetRecordId?: string;
   reply?: string;
   requiresConfirmation?: boolean;
   unsafeReason?: string;
@@ -103,12 +116,31 @@ export type NluProvider = {
 };
 
 export function defaultActionForIntent(intent: NluIntentName): NluActionName {
+  if (intent === "record_event") return "create_record";
+  if (intent === "complete_record") return "update_record";
   if (intent === "driver_status_update") return "store_status_update";
+  if (intent === "sheet_summary_request") return "sheet_summary";
   if (intent === "sheet_change_request") return "block_sheets";
   if (intent === "broadcast_request") return "block_broadcast";
   if (intent === "ask_driver_followup") return "request_confirmation";
+  if (
+    intent === "admin_question" ||
+    intent === "trip_status_question" ||
+    intent === "bot_identity_question" ||
+    intent === "operational_summary_request"
+  ) {
+    return "answer_question";
+  }
   if (intent === "unknown") return "none";
   return "reply";
+}
+
+export function isUsableLlmResult(result: NluResult): boolean {
+  if (result.unsafeReason === "sensitive_not_admin") return false;
+  if (result.intent === "unknown" && (result.action === "none" || result.action === "unknown")) return false;
+  if (result.action === "unknown" || result.action === "none") return false;
+  if (result.confidence < 0.45) return false;
+  return true;
 }
 
 export function unknownNlu(reason = "invalid_or_empty"): NluResult {

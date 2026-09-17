@@ -98,7 +98,9 @@ export function planPendingResume(
     allowed: true,
     conversationId: conversation.id,
     record: pending,
-    text: questionForMissing(pending.kind, pending.missing),
+    text: questionForMissing(pending.kind, pending.missing, {
+      description: pending.despesa?.description,
+    }),
     missingKey: missingKey(pending.missing),
   };
 }

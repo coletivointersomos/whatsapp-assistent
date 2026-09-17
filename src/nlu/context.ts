@@ -29,7 +29,7 @@ export function buildNluContext(
   const status = lastStatusForConversation(state, inbound.conversationId);
   const openPendings = state.records
     .filter((r) => r.status === "incompleto" && (!opts.driverId || r.driverId === opts.driverId))
-    .map((r) => `${r.kind} (${r.missing.join(", ") || "campos"})`);
+    .map((r) => `${r.id} ${r.kind} (${r.missing.join(", ") || "campos"})`);
 
   const recentMessages = state.messages
     .filter((m) => m.conversationId === inbound.conversationId)

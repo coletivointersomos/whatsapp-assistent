@@ -8,7 +8,7 @@ export const ABASTECIMENTO_REQUIRED = [
   "payment",
 ] as const;
 
-export const DESPESA_REQUIRED = ["date", "amountBrl", "description", "payment"] as const;
+export const DESPESA_REQUIRED = ["amountBrl", "description", "payment", "date"] as const;
 
 export const VIAGEM_REQUIRED = [
   "date",

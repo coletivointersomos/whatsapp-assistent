@@ -23,7 +23,7 @@ import type {
   ProcessResult,
   StoredMessage,
 } from "../domain/types.ts";
-import { confirmationForKind, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
+import { confirmationForRecord, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
 import { matchCentralAssist, matchDriverAssist } from "../extraction/assist.ts";
 import {
   extractFromText,
@@ -36,10 +36,11 @@ import { buildNluContext } from "../nlu/context.ts";
 import { createFakeProvider } from "../nlu/fakeProvider.ts";
 import { gateSensitiveIntent } from "../nlu/gate.ts";
 import { lastTripForDriver } from "../nlu/status.ts";
-import type { NluAuthorRole, NluProvider, NluResult } from "../nlu/types.ts";
+import { isUsableLlmResult, unknownNlu, type NluAuthorRole, type NluProvider, type NluResult } from "../nlu/types.ts";
+import { applyLlmInterpretation } from "./nluExecute.ts";
 import { planPendingResume } from "./resume.ts";
 
-export type Clock = { now: () => Date; nluEnabled?: boolean; nlu?: NluProvider };
+export type Clock = { now: () => Date; nluEnabled?: boolean; nlu?: NluProvider; nluFirst?: boolean };
 
 function resolveLocalNlu(clock: Clock): NluProvider | undefined {
   if (clock.nluEnabled === false) return undefined;
@@ -76,6 +77,92 @@ function interpretLocal(
   const raw = interpretSync(nlu, ctx);
   if (!raw) return undefined;
   return gateSensitiveIntent(raw, opts.isAdmin);
+}
+
+function expenseHint(record: OperationalRecord | undefined) {
+  return { description: record?.despesa?.description };
+}
+
+function applyFirstNlu(
+  state: AppState,
+  inbound: InboundMessage,
+  conversation: { id: string; externalId: string; driverId?: string },
+  nlu: NluResult | undefined,
+  opts: {
+    isAdmin: boolean;
+    isDriver: boolean;
+    allowReply: boolean;
+    vehicleHint?: string;
+    stored?: StoredMessage;
+  },
+): ProcessResult | undefined {
+  if (!nlu || !isUsableLlmResult(nlu)) return undefined;
+  const applied = applyLlmInterpretation({
+    state,
+    inbound,
+    conversation,
+    nlu,
+    isAdmin: opts.isAdmin,
+    isDriver: opts.isDriver,
+    allowReply: opts.allowReply,
+    vehicleHint: opts.vehicleHint,
+  });
+  if (!applied) return undefined;
+  return { ...applied, message: opts.stored };
+}
+
+export async function processMessageAsync(
+  state: AppState,
+  inboundRaw: InboundMessage,
+  clock: Clock,
+): Promise<ProcessResult> {
+  if (!clock.nluFirst || !clock.nlu) {
+    return processMessage(state, inboundRaw, { ...clock, nluFirst: false });
+  }
+
+  const inbound = normalizeInbound(inboundRaw);
+  const duplicate =
+    state.messages.some((m) => m.externalId === inbound.externalId) ||
+    state.rejected.some((r) => r.externalId === inbound.externalId);
+  const conversation = state.conversations.find(
+    (c) => c.active && (c.id === inbound.conversationId || c.externalId === inbound.conversationId),
+  );
+  const authorRole = conversation ? resolveAuthorRole(state, inbound.authorId) : "desconhecido";
+  if (duplicate || !conversation || authorRole === "bot" || authorRole === "desconhecido") {
+    return processMessage(state, inboundRaw, { ...clock, nluFirst: false });
+  }
+
+  const ctx = buildNluContext(state, inbound, {
+    authorRole: authorRole === "alana" ? "alana" : authorRole === "motorista" ? "motorista" : "desconhecido",
+    isAdmin: authorRole === "alana",
+    now: clock.now(),
+    driverId: conversation.driverId,
+  });
+
+  let interpreted: NluResult;
+  try {
+    interpreted = gateSensitiveIntent(
+      await Promise.resolve(clock.nlu.interpret(ctx)),
+      authorRole === "alana",
+    );
+  } catch {
+    interpreted = unknownNlu("llm_failed");
+  }
+
+  if (!isUsableLlmResult(interpreted)) {
+    return processMessage(state, inboundRaw, { ...clock, nluFirst: false, nlu: createFakeProvider() });
+  }
+
+  const cached: NluProvider = {
+    name: clock.nlu.name,
+    interpret: () => interpreted,
+  };
+  return processMessage(state, inboundRaw, {
+    ...clock,
+    nluFirst: true,
+    nlu: cached,
+    nluEnabled: true,
+  });
 }
 
 function applyNluResult(
@@ -326,6 +413,17 @@ export function processMessage(
       driverId: conversation.driverId,
       clock,
     });
+    if (clock.nluFirst) {
+      const applied = applyFirstNlu(state, inbound, conversation, nlu, {
+        isAdmin: true,
+        isDriver: false,
+        allowReply: true,
+        stored,
+      });
+      if (applied) {
+        return { ...applied, pause };
+      }
+    }
     const replies = nlu ? applyNluResult(state, conversation, inbound, nlu, true) : [];
     return {
       decision: replies.length ? "assisted" : "pause_updated",
@@ -417,8 +515,47 @@ export function processMessage(
     findDriverByAuthor(state, inbound.authorId) ??
     state.drivers.find((d) => d.id === conversation.driverId);
   const sentAt = new Date(inbound.sentAt);
-  const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
   const pending = findOpenIncomplete(state, conversation);
+  const allowReply = canSendProactive(state, conversation.id, conversation.driverId, now);
+
+  if (clock.nluFirst) {
+    const nlu = interpretLocal(state, inbound, {
+      authorRole: "motorista",
+      isAdmin: false,
+      now,
+      driverId: conversation.driverId,
+      pending,
+      clock,
+    });
+    const applied = applyFirstNlu(state, inbound, conversation, nlu, {
+      isAdmin: false,
+      isDriver: true,
+      allowReply,
+      vehicleHint: driver?.vehicleHint,
+      stored,
+    });
+    if (applied) return applied;
+  }
+
+  if (
+    pending?.kind === "despesa" &&
+    /\boutro\s+dia\b/i.test(text) &&
+    pending.missing.includes("amountBrl")
+  ) {
+    const name = pending.despesa?.description?.trim() ? ` com ${pending.despesa.description.trim()}` : "";
+    const replies: BotReply[] = allowReply
+      ? [pushReply(state, conversation.id, `Certo. Qual foi o valor desse gasto${name}?`)]
+      : [];
+    return {
+      decision: "record_incomplete",
+      duplicate: false,
+      message: stored,
+      record: pending,
+      replies: snapshotReplies(replies),
+    };
+  }
+
+  const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
 
   if (pending && !isNewOperationalEvent(extracted, pending.kind, pendingFields(pending))) {
     const incoming = extractPendingFill(
@@ -437,10 +574,14 @@ export function processMessage(
       const replies: BotReply[] = [];
       if (canSendProactive(state, conversation.id, conversation.driverId, now)) {
         if (pending.status === "completo") {
-          replies.push(pushReply(state, conversation.id, confirmationForKind(pending.kind)));
+          replies.push(pushReply(state, conversation.id, confirmationForRecord(pending.kind, pending)));
         } else {
           replies.push(
-            pushReply(state, conversation.id, questionForMissing(pending.kind, pending.missing)),
+            pushReply(
+              state,
+              conversation.id,
+              questionForMissing(pending.kind, pending.missing, expenseHint(pending)),
+            ),
           );
         }
       }
@@ -515,7 +656,13 @@ export function processMessage(
     record.status === "incompleto" &&
     canSendProactive(state, conversation.id, conversation.driverId, now)
   ) {
-    replies.push(pushReply(state, conversation.id, questionForMissing(record.kind, record.missing)));
+    replies.push(
+      pushReply(
+        state,
+        conversation.id,
+        questionForMissing(record.kind, record.missing, expenseHint(record)),
+      ),
+    );
   }
 
   return {
@@ -566,6 +713,17 @@ function handleCentral(
       now,
       clock,
     });
+    if (clock.nluFirst) {
+      const conversation = state.conversations.find((c) => c.id === stored.conversationId);
+      const applied = applyFirstNlu(
+        state,
+        stored,
+        conversation ?? { id: stored.conversationId, externalId: stored.conversationId },
+        nlu,
+        { isAdmin: true, isDriver: false, allowReply: true, stored },
+      );
+      if (applied) return applied;
+    }
     const nluReplies = nlu ? applyNluResult(state, { id: stored.conversationId }, stored, nlu, true) : [];
     if (nluReplies.length) {
       return {

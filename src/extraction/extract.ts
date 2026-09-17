@@ -33,7 +33,8 @@ function resolveDate(text: string, sentAt: Date): string | undefined {
 
 function detectKind(text: string): RecordKind | undefined {
   if (/\b(abastec\w*)\b/i.test(text)) return "abastecimento";
-  if (/\b(eletricista|gasto extra)\b/i.test(text)) return "despesa";
+  if (/\b(eletricista|gasto extra|mec[aâ]nico|pneu|oficina)\b/i.test(text)) return "despesa";
+  if (/\bgasto\b/i.test(text) && /\bmotor\b/i.test(text)) return "despesa";
   if (/\b(gastei|despesa|gasto)\b/i.test(text)) return "despesa";
   if (/\bviagem\b/i.test(text)) return "viagem";
   if (/\bfrete\b/i.test(text) && /\bde\s+.+\s+para\s+/i.test(text)) return "viagem";
@@ -129,13 +130,19 @@ function extractAbastecimento(text: string, sentAt: Date, vehicle?: string) {
 function extractDespesa(text: string, sentAt: Date, vehicle?: string) {
   const amount =
     text.match(/\b(?:gastei|gasto|despesa)\s*(?:de\s*)?(?:r\$\s*)?(\d+(?:[.,]\d+)?)/i) ??
-    text.match(/(?:r\$\s*)(\d+(?:[.,]\d+)?)/i);
+    text.match(/\bfoi\s+(?:de\s+|r\$\s*)?(\d+(?:[.,]\d+)?)/i) ??
+    text.match(/(?:r\$\s*)(\d+(?:[.,]\d+)?)/i) ??
+    text.match(/\b(\d+(?:[.,]\d+)?)\s*(?:reais|no pix)\b/i);
   const fields: Record<string, string | number> = {};
   const date = resolveDate(text, sentAt);
   if (date) fields.date = date;
   if (amount) fields.amountBrl = parseNumber(amount[1]);
   const description = extractDescription(text);
-  if (description) fields.description = description;
+  if (description && !/^\d/.test(description.trim())) fields.description = description;
+  if (!fields.description) {
+    const known = text.match(/\b(eletricista|mec[aâ]nico|pneu|oficina|motor)\b/i);
+    if (known) fields.description = known[1].toLowerCase();
+  }
   const payment = paymentToken(text);
   if (payment) fields.payment = payment;
   if (vehicle) fields.vehicle = vehicle;

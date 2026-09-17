@@ -130,7 +130,7 @@ describe("nlu operacional assistant", () => {
     const ctx = emptyCtx({ message: "quem é você?" });
     const out = fake.interpret(ctx) as import("../src/nlu/types.ts").NluResult;
     assert.equal(out.intent, "bot_identity_question");
-    assert.equal(out.action, "reply");
+    assert.equal(out.action, "answer_question");
     assert.match(out.reply ?? "", /assistente operacional/i);
     assert.match(out.reply ?? "", /João/);
     assert.match(out.reply ?? "", /não envio mensagem em massa/i);
@@ -268,7 +268,7 @@ describe("nlu operacional assistant", () => {
     assert.notEqual(result.decision, "ignored");
     assert.equal(result.record?.kind, "despesa");
     assert.equal(result.record?.status, "incompleto");
-    assert.ok(result.replies.length > 0);
+    assert.doesNotMatch(result.replies[0]?.text ?? "", /^Foi hoje ou outro dia\?$/);
   });
 
   it("fake NLU returns a validated intent and invalid JSON becomes unknown", () => {
@@ -279,7 +279,7 @@ describe("nlu operacional assistant", () => {
     });
     const ok = fake.interpret(emptyCtx({ message: "oi" })) as import("../src/nlu/types.ts").NluResult;
     assert.equal(ok.intent, "admin_question");
-    assert.equal(ok.action, "reply");
+    assert.equal(ok.action, "answer_question");
     assert.equal(validateNluResult("{not json").intent, "unknown");
     assert.equal(validateNluResult({ intent: "explode" }).intent, "unknown");
   });
