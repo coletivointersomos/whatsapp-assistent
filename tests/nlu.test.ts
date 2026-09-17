@@ -332,6 +332,8 @@ describe("nlu operacional assistant", () => {
       apiKey: "secret-should-not-log",
       baseUrl: "https://example.invalid",
       timeoutMs: 50,
+      maxTokens: 512,
+      jsonResponseFormat: true,
     });
     const result = await provider.interpret(emptyCtx({ message: "oi", authorRole: "alana", isAdmin: true }));
     assert.equal(result.intent, "unknown");

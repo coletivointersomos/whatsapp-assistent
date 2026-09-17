@@ -49,7 +49,20 @@ export async function handleInboundPayload(input: {
 
   const inbound = normalized.inbound;
   const nluConfig = loadNluConfig(process.env);
-  const nlu = input.clock?.nlu ?? createNluProvider(nluConfig);
+  const nlu =
+    input.clock?.nlu ??
+    createNluProvider(nluConfig, {
+      onHttp: (info) =>
+        log("nlu_http", {
+          status: info.status,
+          ok: info.ok,
+          statusText: info.statusText,
+          host: info.host,
+          path: info.path,
+          usedResponseFormat: info.usedResponseFormat,
+          bodyPreview: info.bodyPreview,
+        }),
+    });
   const llmFirst =
     input.clock?.nluFirst === true ||
     (input.clock?.nluFirst !== false && canCallRemoteLlm(nluConfig) && input.clock?.nluEnabled !== false);

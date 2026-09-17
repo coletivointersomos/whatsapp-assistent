@@ -5,6 +5,8 @@ export type NluRuntimeConfig = {
   apiKey: string;
   baseUrl: string;
   timeoutMs: number;
+  maxTokens: number;
+  jsonResponseFormat: boolean;
 };
 
 export function loadNluConfig(env: NodeJS.Dict<string> = process.env): NluRuntimeConfig {
@@ -12,6 +14,7 @@ export function loadNluConfig(env: NodeJS.Dict<string> = process.env): NluRuntim
   const provider: NluRuntimeConfig["provider"] =
     providerRaw === "llm" ? "llm" : providerRaw === "rules" ? "rules" : "fake";
   const timeout = Number(env.LLM_NLU_TIMEOUT_MS ?? 8000);
+  const maxTokens = Number(env.LLM_NLU_MAX_TOKENS ?? 512);
   return {
     enabled: env.LLM_NLU_ENABLED === "true",
     provider,
@@ -19,6 +22,8 @@ export function loadNluConfig(env: NodeJS.Dict<string> = process.env): NluRuntim
     apiKey: env.LLM_NLU_API_KEY ?? "",
     baseUrl: env.LLM_NLU_BASE_URL?.trim() ?? "",
     timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 8000,
+    maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.min(maxTokens, 4096) : 512,
+    jsonResponseFormat: env.LLM_NLU_JSON_OBJECT !== "false",
   };
 }
 

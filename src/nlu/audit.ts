@@ -3,6 +3,7 @@ import type { NluResult } from "./types.ts";
 
 export type NluRejectReason =
   | "json_invalid"
+  | "http_error"
   | "confidence_low"
   | "action_unknown"
   | "schema_invalid"
@@ -15,8 +16,9 @@ const SECRET_MARK = /sk-[a-z0-9_-]{8,}|Bearer\s+\S+|hmac|api[_-]?key/i;
 export function nluRejectReason(result: NluResult): NluRejectReason | undefined {
   const why = result.reasoning_summary ?? "";
   if (result.unsafeReason === "sensitive_not_admin") return "permission_denied";
-  if (why === "invalid_json" || why === "llm_http") return "json_invalid";
-  if (why === "unknown_intent") return "schema_invalid";
+  if (why === "invalid_json") return "json_invalid";
+  if (why === "llm_http" || why.startsWith("llm_http:")) return "http_error";
+  if (why === "llm_empty_content" || why === "unknown_intent") return "schema_invalid";
   if (why === "llm_failed" || why === "llm_disabled") return "llm_failed";
   if (result.action === "unknown" || result.action === "none") return "action_unknown";
   if (result.intent === "unknown") return "action_unknown";

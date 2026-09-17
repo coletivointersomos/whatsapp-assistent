@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts tests/simulate.test.ts tests/schedule.test.ts tests/sheets.test.ts tests/sheets-sync.test.ts tests/hermes-adapter.test.ts tests/controlled-send.test.ts tests/group-conversation.test.ts tests/resume.test.ts tests/pending-complete.test.ts tests/conversation-flow.test.ts tests/assist.test.ts tests/records-preview.test.ts tests/nlu.test.ts tests/nlu-first.test.ts",
+    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts tests/simulate.test.ts tests/schedule.test.ts tests/sheets.test.ts tests/sheets-sync.test.ts tests/hermes-adapter.test.ts tests/controlled-send.test.ts tests/group-conversation.test.ts tests/resume.test.ts tests/pending-complete.test.ts tests/conversation-flow.test.ts tests/assist.test.ts tests/records-preview.test.ts tests/nlu.test.ts tests/nlu-first.test.ts tests/nlu-llm.test.ts",
+    "nlu:smoke": "tsx src/cli/nluSmoke.ts",
     "records:preview": "tsx src/cli/recordsPreview.ts",
     "simulate": "tsx src/cli/simulate.ts",
     "simulate:demo": "tsx src/cli/simulate.ts --file fixtures/demo-conversa-fluida.json",

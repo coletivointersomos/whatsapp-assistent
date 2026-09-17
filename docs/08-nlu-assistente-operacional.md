@@ -46,7 +46,10 @@ LLM_NLU_ENABLED=false
 LLM_NLU_PROVIDER=fake
 LLM_NLU_API_KEY=
 LLM_NLU_BASE_URL=
+LLM_NLU_MAX_TOKENS=512
 ```
+
+`max_tokens` padrão **512** (NLU JSON curto). Sem isso, alguns provedores pedem 16k tokens e respondem **402** se o crédito residual for menor. Smoke: `npm run nlu:smoke` (status HTTP + parse; sem secrets). URL: `{base}/chat/completions`, sem duplicar se `base` já termina nesse path. Logs `nlu_http`: status, host, path, bodyPreview mascarado.
 
 Só `ENABLED=true` **e** `PROVIDER=llm` **e** key+base URL chamam `/chat/completions` **antes** do parser. Logs: `nlu_first` e `nlu_result` (intent/action/confidence/hasReply/rejectReason; sem key, HMAC ou JID completo). JSON inválido → fallback determinístico. Se a action for válida, a `reply` do LLM prevalece sobre o template.
 
