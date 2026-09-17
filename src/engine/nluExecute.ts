@@ -26,6 +26,7 @@ import {
   looksLikeComplementOnly,
   looksLikeNewOperationalEvent,
 } from "../extraction/pending.ts";
+import { normalizeCargoUnit } from "../domain/units.ts";
 import { coercePlanForRecord } from "../nlu/plan.ts";
 import { lastTripForDriver } from "../nlu/status.ts";
 import type { NluRecordType, NluResult } from "../nlu/types.ts";
@@ -81,11 +82,21 @@ function trustedFields(
     fromText.date = dayIso(sentAt);
   }
   if (!llmFields) return fromText;
-  for (const key of ["description", "place", "origin", "destination", "material", "payment", "note", "unit"] as const) {
+  for (const key of ["description", "place", "origin", "destination", "material", "payment", "note"] as const) {
     const suggested = llmFields[key];
     if (fromText[key] === undefined && typeof suggested === "string" && suggested.trim()) {
       fromText[key] = suggested.trim().slice(0, 80);
     }
+  }
+  if (fromText.unit === undefined) {
+    const unit = normalizeCargoUnit(llmFields.unit);
+    if (unit) fromText.unit = unit;
+  } else {
+    const unit = normalizeCargoUnit(String(fromText.unit));
+    if (unit) fromText.unit = unit;
+  }
+  if (fromText.quantity === undefined && typeof llmFields.quantity === "number" && Number.isFinite(llmFields.quantity)) {
+    if (text.includes(String(llmFields.quantity))) fromText.quantity = llmFields.quantity;
   }
   const approx = llmFields.approximate_date_text;
   if (fromText.note === undefined && typeof approx === "string" && approx.trim()) {

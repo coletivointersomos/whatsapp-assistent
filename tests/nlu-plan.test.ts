@@ -167,6 +167,89 @@ describe("LLM conversational planner", () => {
     assert.match(done.replies[0]?.text ?? "", /Fechado|registrei essa viagem/i);
   });
 
+  it("LLM plan with material/quantity/unit m3 closes the trip", async () => {
+    const parsed = validateNluResult({
+      intent: "complete_record",
+      action: "update_record",
+      confidence: 0.94,
+      record_type: "viagem",
+      fields: { material: "soja", quantity: 47, unit: "m3" },
+      missing_fields: [],
+      is_complete: true,
+      reply: "Fechado, registrei essa viagem.",
+    });
+    assert.equal(parsed.fields?.unit, "m³");
+    const nlu = scripted((ctx) => {
+      if (/nova viagem/i.test(ctx.message)) {
+        return plan({
+          intent: "record_event",
+          action: "create_record",
+          recordType: "viagem",
+          confidence: 0.95,
+          reasoning_summary: "new_trip",
+          isComplete: false,
+          fields: { origin: "Curitiba", destination: "Nova Veneza" },
+          reply: "Entendi a viagem. Qual foi a carga e a quantidade?",
+        });
+      }
+      return parsed;
+    });
+    const state = seedState();
+    await run(state, msg({ externalId: "p1", text: "nova viagem de curitiba para nova veneza" }), nlu);
+    const done = await run(state, msg({ externalId: "p2", text: "soja, 47 m3" }), nlu);
+    assert.equal(done.record?.status, "completo");
+    assert.equal(done.record?.viagem?.unit, "m³");
+  });
+
+  it("completes trip for m3 / m³ / metros cubicos even if the LLM omits unit and asks for it", async () => {
+    function cargoNlu(): NluProvider {
+      return scripted((ctx) => {
+        if (/nova viagem/i.test(ctx.message)) {
+          return plan({
+            intent: "record_event",
+            action: "create_record",
+            recordType: "viagem",
+            confidence: 0.95,
+            reasoning_summary: "new_trip",
+            isComplete: false,
+            fields: { origin: "Curitiba", destination: "Nova Veneza" },
+            reply: "Entendi a viagem de Curitiba para Nova Veneza. Qual foi a carga e a quantidade?",
+          });
+        }
+        return plan({
+          intent: "record_event",
+          action: "complete_record",
+          recordType: "viagem",
+          confidence: 0.9,
+          reasoning_summary: "forgot_unit",
+          isComplete: false,
+          missingFields: ["unit"],
+          fields: { material: "soja", quantity: 47 },
+          reply: "Para completar o registro da viagem, por favor, informe a unidade da carga (por exemplo, m³, kg, etc.).",
+        });
+      });
+    }
+    for (const [id, text] of [
+      ["a", "soja, 47 m3"],
+      ["b", "soja, 47 m³"],
+      ["c", "soja, 47 metros cubicos"],
+    ] as const) {
+      const logs: Array<{ event: string; fields: Record<string, unknown> }> = [];
+      const state = seedState();
+      await run(state, msg({ externalId: `${id}-1`, text: "nova viagem de curitiba para nova veneza" }), cargoNlu());
+      const done = await run(state, msg({ externalId: `${id}-2`, text }), cargoNlu(), logs);
+      assert.equal(done.record?.status, "completo", text);
+      assert.equal(done.record?.viagem?.material, "soja", text);
+      assert.equal(done.record?.viagem?.quantity, 47, text);
+      assert.equal(done.record?.viagem?.unit, "m³", text);
+      assert.match(done.replies[0]?.text ?? "", /Fechado|registrei essa viagem/i);
+      assert.doesNotMatch(done.replies[0]?.text ?? "", /unidade da carga/i);
+      const planLog = logs.find((l) => l.event === "llm_plan_corrected" || l.event === "llm_plan_applied");
+      assert.equal(planLog?.fields.applied_unit, "m³", text);
+      assert.equal(planLog?.fields.record_status, "completo", text);
+    }
+  });
+
   it("electrician 250 pix asks exact date; outro dia is not ignored", async () => {
     const nlu = scripted((ctx) => {
       if (/eletricista/i.test(ctx.message) && !/250/.test(ctx.message) && !/outro dia/i.test(ctx.message)) {

@@ -131,5 +131,20 @@ describe("extractComplement", () => {
     const foram = extractComplement("viagem", "foram 47 m3", sentAt);
     assert.equal(foram.viagem?.quantity, 47);
     assert.equal(foram.viagem?.unit, "m³");
+
+    const csv = extractComplement("viagem", "soja, 47 m3", sentAt);
+    assert.equal(csv.viagem?.material, "soja");
+    assert.equal(csv.viagem?.quantity, 47);
+    assert.equal(csv.viagem?.unit, "m³");
+
+    const super3 = extractComplement("viagem", "soja, 47 m³", sentAt);
+    assert.equal(super3.viagem?.material, "soja");
+    assert.equal(super3.viagem?.quantity, 47);
+    assert.equal(super3.viagem?.unit, "m³");
+
+    const words = extractComplement("viagem", "soja, 47 metros cubicos", sentAt);
+    assert.equal(words.viagem?.material, "soja");
+    assert.equal(words.viagem?.quantity, 47);
+    assert.equal(words.viagem?.unit, "m³");
   });
 });

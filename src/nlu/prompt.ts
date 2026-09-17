@@ -9,7 +9,9 @@ reply obrigatória, português natural, perguntando só o que falta.
 Campos obrigatórios:
 - abastecimento: date, liters, amount_brl (total), place, payment
 - despesa: date, amount_brl, description, payment
-- viagem: origin, destination, material, quantity (unit se aplicável). date pode ficar para o engine (sentAt) se o motorista não informou.
+- viagem: origin, destination, material, quantity, unit. date pode ficar para o engine (sentAt) se o motorista não informou.
+m3, m³, metro cúbico, metros cúbicos → fields.unit (não peça unidade de novo). toneladas/t → toneladas. kg → kg.
+Se a mensagem já trouxer carga e quantidade com unidade (ex.: “soja, 47 m3”), preencha material, quantity e unit, is_complete=true se o restante já estiver no registro, e NÃO pergunte unidade/carga de novo.
 Se faltar material/quantity na viagem, is_complete=false e pergunte carga e quantidade. NÃO diga que registrou a viagem como fechada.
 Se despesa tiver descrição+valor+pagamento sem date: registre incompleto e peça o dia exato (não só “Foi hoje ou outro dia?”).
 “outro dia”, “semana passada”, “faz uns dias”: approximate_date_text preenchido, date vazio, peça dia exato (ex. 15/09).

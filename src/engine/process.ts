@@ -200,10 +200,16 @@ export async function processMessageAsync(
       nluEnabled: true,
     }),
   );
+  const appliedFields = {
+    ...safePlanLogFields(interpreted),
+    applied_unit: applied.record?.viagem?.unit ?? "",
+    record_status: applied.record?.status ?? "",
+    record_missing: applied.record?.missing ?? [],
+  };
   if (interpreted.planCorrection) {
-    emit?.("llm_plan_corrected", { reason: interpreted.planCorrection, ...safePlanLogFields(interpreted) });
+    emit?.("llm_plan_corrected", { reason: interpreted.planCorrection, ...appliedFields });
   } else {
-    emit?.("llm_plan_applied", safePlanLogFields(interpreted));
+    emit?.("llm_plan_applied", appliedFields);
   }
   return applied;
 }

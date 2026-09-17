@@ -1,5 +1,6 @@
 import { dayIso } from "../domain/rules.ts";
 import type { RecordKind } from "../domain/types.ts";
+import { CARGO_MATERIAL_QTY_RE, CARGO_QTY_UNIT_RE, normalizeCargoUnit } from "../domain/units.ts";
 
 export type Extracted = {
   kind: RecordKind;
@@ -151,9 +152,7 @@ function extractDespesa(text: string, sentAt: Date, vehicle?: string) {
 
 function extractViagem(text: string, sentAt: Date, vehicle?: string) {
   const route = text.match(/\bde\s+(.+?)\s+(?:para|pra)\s+(.+?)(?=\s+com\b|,|$)/i);
-  const qty = text.match(
-    /(\d+(?:[.,]\d+)?)\s*(toneladas?|t\b|m[³3]|metros?\s*c[uú]bicos?|kg)\b/i,
-  );
+  const qty = text.match(CARGO_QTY_UNIT_RE);
   const material = text.match(/\b(?:com|de|,)\s*([a-zA-Zá-úÁ-Ú]+)\s+(\d+(?:[.,]\d+)?)\s*(?:toneladas?|t\b|m[³3])/i)
     ?? text.match(/,\s*([a-zA-Zá-úÁ-Ú]+)\s*,/i);
   const unitPrice = text.match(/\b(?:pre[cç]o|r\$)\s*(?:por\s*)?(?:unidade\s*)?(\d+(?:[.,]\d+)?)/i);
@@ -169,16 +168,19 @@ function extractViagem(text: string, sentAt: Date, vehicle?: string) {
   }
   if (qty) {
     fields.quantity = parseNumber(qty[1]);
-    const unitRaw = qty[2].toLowerCase();
-    fields.unit = unitRaw.startsWith("m") ? "m³" : unitRaw.replace(/^t$/, "toneladas");
+    const unit = normalizeCargoUnit(qty[2]);
+    if (unit) fields.unit = unit;
   }
   if (material) fields.material = material[1].trim();
   if (!fields.material) {
-    const beforeQty = text.match(
-      /\b([A-Za-zÀ-ú]+)\s+(\d+(?:[.,]\d+)?)\s*(toneladas?|t\b|m[³3]|kg)\b/i,
-    );
+    const beforeQty = text.match(CARGO_MATERIAL_QTY_RE);
     if (beforeQty && !isReservedWord(beforeQty[1])) {
       fields.material = beforeQty[1].trim();
+      if (fields.quantity === undefined && beforeQty[2]) fields.quantity = parseNumber(beforeQty[2]);
+      if (fields.unit === undefined && beforeQty[3]) {
+        const unit = normalizeCargoUnit(beforeQty[3]);
+        if (unit) fields.unit = unit;
+      }
     }
   }
   if (!fields.material) {
