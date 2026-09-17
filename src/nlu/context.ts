@@ -1,23 +1,13 @@
-import { isPauseActive } from "../domain/rules.ts";
-import type { AppState, InboundMessage, OperationalRecord } from "../domain/types.ts";
+import { dayIso, isPauseActive } from "../domain/rules.ts";
+import type { AppState, InboundMessage } from "../domain/types.ts";
 import { maskJid } from "../inspect/mask.ts";
-import { localTotals, type LocalTotals } from "./totals.ts";
-import type { NluContext } from "./types.ts";
+import { lastBotText, lastStatusForConversation, lastTripForDriver } from "./status.ts";
+import { localTotals } from "./totals.ts";
+import type { ConversationContext, NluContext } from "./types.ts";
 
-function lastIncomplete(
-  state: AppState,
-  conversationId: string,
-  driverId: string | undefined,
-): OperationalRecord | undefined {
+function driverName(state: AppState, driverId: string | undefined): string | undefined {
   if (!driverId) return undefined;
-  const matches = state.records.filter((record) => {
-    if (record.status !== "incompleto" || record.driverId !== driverId) return false;
-    return record.sourceMessageIds.some((id) => {
-      const message = state.messages.find((item) => item.externalId === id);
-      return message?.conversationId === conversationId;
-    });
-  });
-  return matches[matches.length - 1];
+  return state.drivers.find((d) => d.id === driverId)?.name;
 }
 
 export function buildNluContext(
@@ -28,42 +18,84 @@ export function buildNluContext(
     isAdmin: boolean;
     now: Date;
     driverId?: string;
-    pending?: OperationalRecord;
   },
-): NluContext {
+): ConversationContext {
   const pause = state.pauses.find((p) => p.conversationId === inbound.conversationId);
-  const pending =
-    opts.pending ?? lastIncomplete(state, inbound.conversationId, opts.driverId);
-  const totals: LocalTotals = localTotals(state, { now: opts.now });
+  const today = dayIso(opts.now);
+  const todayTotals = localTotals(state, { date: today });
+  const allTotals = localTotals(state, { now: opts.now });
+  const driver = state.drivers.find((d) => d.id === opts.driverId);
+  const trip = lastTripForDriver(state, opts.driverId);
+  const status = lastStatusForConversation(state, inbound.conversationId);
+  const openPendings = state.records
+    .filter((r) => r.status === "incompleto" && (!opts.driverId || r.driverId === opts.driverId))
+    .map((r) => `${r.kind} (${r.missing.join(", ") || "campos"})`);
+
   const recentMessages = state.messages
     .filter((m) => m.conversationId === inbound.conversationId)
-    .slice(-6)
-    .map((m) => `${m.authorRole}: ${(m.text ?? "").slice(0, 120)}`);
-  const recentRecords = state.records.slice(-5).map((r) => {
+    .slice(-8)
+    .map((m) => `${m.authorRole}: ${(m.text ?? "").slice(0, 160)}`);
+  const recentRecords = state.records.slice(-6).map((r) => {
     const date = r.abastecimento?.date ?? r.despesa?.date ?? r.viagem?.date ?? "";
-    return `${r.kind} ${r.status} ${date}`.trim();
+    const extra =
+      r.kind === "viagem"
+        ? [r.viagem?.origin, r.viagem?.destination, r.viagem?.material].filter(Boolean).join(" ")
+        : r.kind === "despesa"
+          ? r.despesa?.description ?? ""
+          : r.abastecimento?.place ?? "";
+    return `${r.kind} ${r.status} ${date} ${extra}`.trim();
   });
+  const recentExpenses = state.records
+    .filter((r) => r.kind === "despesa")
+    .slice(-6)
+    .map((r) => {
+      const name = driverName(state, r.driverId) ?? r.driverId;
+      return `${name}: ${r.despesa?.description ?? "despesa"} ${r.despesa?.date ?? ""} R$ ${r.despesa?.amountBrl ?? "?"}`;
+    });
 
   return {
+    conversationMasked: maskJid(inbound.conversationId),
     authorRole: opts.authorRole,
     isAdmin: opts.isAdmin,
     paused: Boolean(pause && isPauseActive(pause.silenceUntil, opts.now)),
     message: inbound.text ?? "",
-    conversationMasked: maskJid(inbound.conversationId),
+    driverName: driver?.name,
+    driverId: opts.driverId,
+    vehicle: driver?.vehicleHint,
+    lastBotQuestion: lastBotText(state, inbound.conversationId),
+    openPendings,
     recentMessages,
-    pending: pending
+    recentRecords,
+    recentExpenses,
+    currentTrip: trip
       ? {
-          recordId: pending.id,
-          kind: pending.kind,
-          status: pending.status,
-          missing: [...pending.missing],
+          recordId: trip.id,
+          status: trip.status,
+          origin: trip.viagem?.origin,
+          destination: trip.viagem?.destination,
+          material: trip.viagem?.material,
+          quantity: trip.viagem?.quantity,
+          unit: trip.viagem?.unit,
+          date: trip.viagem?.date,
         }
       : undefined,
-    recentRecords,
+    lastStatusUpdate: status
+      ? {
+          text: status.text,
+          sentAt: status.sentAt,
+          driverName: driverName(state, status.driverId) ?? driver?.name,
+        }
+      : undefined,
+    permissions: {
+      canWriteRecords: true,
+      canWriteSheets: false,
+      canBroadcast: false,
+    },
     totals: {
-      fuelBrlToday: localTotals(state, { date: opts.now.toISOString().slice(0, 10) }).fuelBrl,
-      expenseBrlToday: localTotals(state, { date: opts.now.toISOString().slice(0, 10) }).expenseBrl,
-      pendingCount: totals.pendingCount,
+      asOfDate: today,
+      fuelBrlToday: todayTotals.fuelBrl,
+      expenseBrlToday: todayTotals.expenseBrl,
+      pendingCount: allTotals.pendingCount,
     },
   };
 }

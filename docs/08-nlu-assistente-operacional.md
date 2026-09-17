@@ -1,57 +1,70 @@
-# 08 — Assistente operacional (NLU controlada)
+# 08 — Assistente operacional (contexto + actions)
 
-**Status:** camada NLU no repo Alana. **Hermes/OpenWA continua só canal.** LLM não executa ação, não escreve Sheets e não manda broadcast.  
-**Padrão:** parser determinístico primeiro → JSON NLU opcional → engine valida → resposta/ação.
+**Status:** NLU baseada em contexto. Hermes/OpenWA continua só canal. LLM **não** executa ação, não escreve Sheets e não manda broadcast.  
+**Padrão:** parser determinístico primeiro → NLU (fake local ou LLM remoto) devolve JSON (intent, action, reply) → engine valida e executa o que for seguro.
 
-## 1. Hermes canal vs inteligência
+## 1. Fluidez não vem de frases fixas
 
-O container da transportadora recebe e envia WhatsApp (allowlist + send gate). A inteligência de registro (abastecimento/despesa/viagem, complemento, pausa) está neste código TypeScript. Outros Hermes da VPS têm LLM; **não** copiamos persona, secrets, SQLite nem tools deles.
+Não vamos crescer if/else de apresentação (`quem é você?`, `onde estamos?`, `você me escuta?`). Essas perguntas devem ser respondidas com o **contexto da conversa**. O fake provider é o stand-in testável; o LLM real, quando autorizado, usa o mesmo JSON.
 
-## 2. Por que LLM entra
+Fallback simples (alô / bom dia do motorista, `ajuda` na central) só cobre o caso em que a NLU local está explicitamente desligada (`nluEnabled: false`). O caminho principal é contexto + intenção.
 
-O parser cobre frases típicas. Admin e falas curtas (“são joão”, perguntas de total) precisam de um interpretador. O LLM, quando ligado, **só classifica intenção em JSON**.
+## 2. O que o código faz vs o que o LLM faz
 
-## 3. Arquitetura
+| Camada | Responsabilidade |
+|---|---|
+| Extract / engine | Registros claros, complemento, pausa, allowlist, send gate |
+| NLU | Classificar intent, sugerir `reply` natural, apontar `action` |
+| Engine | Validar permissão, gravar status, recusar Sheets/broadcast, perguntar campos |
 
-```
-mensagem
-  → regras determinísticas (extract / complemento / pausa / permissão)
-  → se ainda precisar: NLU (fake | llm via fetch)
-  → JSON validado (intent, confidence, fields…)
-  → engine decide: perguntar, fechar registro, recusar ação sensível
-  → send gate (LIVE_SEND + TEST_GROUP_JID)
-```
+O LLM **não** chama ferramenta, **não** envia WhatsApp, **não** escreve store sozinho.
 
-Sheets: `sheets:preview` / `sheets:sync` dry-run. Totais admin usam o store local.
+## 3. ConversationContext
 
-## 4. O que o LLM pode e não pode
+O payload para o interpretador inclui, quando existir (JIDs só mascarados):
 
-**Pode:** sugerir `record_event`, `complete_record`, `admin_question`, resumo local, marcar pedido de planilha/broadcast/follow-up.  
-**Não pode:** escrever Google Sheets, enviar em massa, decidir allowlist, inventar valores, ignorar pausa da Alana para o motorista, logar API key.
+- conversa mascarada, papel, pausa, permissões (`canWriteSheets`/`canBroadcast` sempre false nesta fase);
+- motorista e veículo associados;
+- últimas mensagens, última pergunta do bot, pendências;
+- registros recentes e despesas resumidas;
+- viagem atual/recente (origem, destino, material, quantidade);
+- última atualização operacional em texto;
+- totais locais do dia.
 
-Ação sensível: se não for admin → bloqueada; se for admin → `requiresConfirmation`, sem executar.
+## 4. Intents e actions
 
-## 5. Flags
+Intents: `record_event`, `complete_record`, `admin_question`, `sheet_summary_request`, `sheet_change_request`, `broadcast_request`, `ask_driver_followup`, `driver_status_update`, `trip_status_question`, `bot_identity_question`, `operational_summary_request`, `unknown`.
+
+Actions: `none`, `reply`, `store_status_update`, `request_confirmation`, `block_sheets`, `block_broadcast`.
+
+JSON típico: `intent`, `action`, `confidence`, `reply`, `fields`, `target`, `requiresConfirmation`.
+
+- Resposta informativa segura → `reply`.
+- Atualização livre do motorista → `store_status_update` (texto associado à conversa/viagem; sem mapa/GPS).
+- Sheets real → `block_sheets` + confirmação; **não escreve**.
+- Broadcast → `block_broadcast` + confirmação; **não envia em massa**.
+
+## 5. Status operacional
+
+Frases como `estou na BR 101`, `cheguei em Cratos`, `estou descarregando`, `parei no posto`, `atrasou por chuva` viram `driver_status_update`. O store guarda o texto + timestamp + motorista/viagem. Admin pergunta `onde estamos?` e a reply usa viagem + última atualização.
+
+## 6. Flags (LLM real continua off)
 
 ```
 LLM_NLU_ENABLED=false
 LLM_NLU_PROVIDER=fake
-LLM_NLU_MODEL=
 LLM_NLU_API_KEY=
 LLM_NLU_BASE_URL=
-LLM_NLU_TIMEOUT_MS=8000
 ```
 
-Só `LLM_NLU_ENABLED=true` **e** `LLM_NLU_PROVIDER=llm` **e** key+base URL chamam rede. Sem isso, fake não dispara HTTP. Complementos `sao joao` / `hoje` e respostas de admin locais **não dependem** do LLM.
+Só `ENABLED=true` **e** `PROVIDER=llm` **e** key+base URL chamam `fetch` `/chat/completions`. Fake nunca dispara HTTP.
 
-## 6. Ativar no grupo controlado (depois)
+O interpretador **local** (fake) roda no engine por padrão para montar reply/action a partir do contexto. `LLM_NLU_ENABLED` não precisa estar `true` para isso — essa flag só libera o provider remoto.
 
-1. Grupo exclusivo + allowlist de 1 chat.  
-2. `LIVE_SEND` só com o send gate.  
-3. Ligar NLU só com as três condições acima.  
-4. Conferir dry-run de Sheets.  
-5. Não ligar broadcast nem alteração real de planilha nesta fase.
+## 7. Próximos passos do provider real
 
-## 7. Limites da demo
-
-Totais = registros locais do store/demo. Sem Google. Broadcast e coluna nova são recusa explícita. Provider real usa `fetch` OpenAI-compatible, sem SDK. JSON inválido → `unknown`.
+1. Validar o roteiro com fake no grupo exclusivo.
+2. Preencher modelo, base URL e key **fora do git**.
+3. Ligar as três condições acima.
+4. Conferir logs: `nlu_followup` só então; sem Sheets; sem broadcast.
+5. JSON inválido continua `unknown`.

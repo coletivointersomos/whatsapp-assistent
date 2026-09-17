@@ -1,4 +1,4 @@
-import { NLU_INTENTS, unknownNlu, type NluIntentName, type NluResult } from "./types.ts";
+import { NLU_ACTIONS, NLU_INTENTS, defaultActionForIntent, unknownNlu, type NluActionName, type NluIntentName, type NluResult } from "./types.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -29,10 +29,17 @@ export function validateNluResult(input: unknown): NluResult {
 
   const intentRaw = String(obj.intent ?? "");
   if (!NLU_INTENTS.includes(intentRaw as NluIntentName)) return unknownNlu("unknown_intent");
+  const intent = intentRaw as NluIntentName;
+
+  const actionRaw = String(obj.action ?? "");
+  const action: NluActionName = NLU_ACTIONS.includes(actionRaw as NluActionName)
+    ? (actionRaw as NluActionName)
+    : defaultActionForIntent(intent);
 
   const confidence = Number(obj.confidence);
   const result: NluResult = {
-    intent: intentRaw as NluIntentName,
+    intent,
+    action,
     confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0,
     reasoning_summary: sanitizeSummary(obj.reasoning_summary ?? obj.reason),
   };

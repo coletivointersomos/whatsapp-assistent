@@ -115,6 +115,17 @@ export type DriverDeferral = {
   deferredAt: string;
 };
 
+/** Texto livre do motorista sobre a viagem (sem GPS). */
+export type OperationalStatusUpdate = {
+  id: string;
+  conversationId: string;
+  driverId?: string;
+  tripRecordId?: string;
+  text: string;
+  sentAt: string;
+  sourceMessageId: string;
+};
+
 export type Suspension = {
   id: string;
   driverId: string;
@@ -154,6 +165,7 @@ export type AppState = {
   rejected: RejectedMessage[];
   records: OperationalRecord[];
   pauses: ConversationPause[];
+  statusUpdates: OperationalStatusUpdate[];
   deferrals: DriverDeferral[];
   suspensions: Suspension[];
   commands: CentralCommand[];

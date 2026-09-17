@@ -54,8 +54,8 @@ export async function handleInboundPayload(input: {
   const nlu = createNluProvider(nluConfig);
   const clock: Clock = {
     now: input.clock?.now ?? (() => new Date(inbound.sentAt)),
-    nluEnabled: nluConfig.enabled && nluConfig.provider !== "llm",
-    nlu: nluConfig.provider === "llm" ? undefined : nlu,
+    nluEnabled: input.clock?.nluEnabled,
+    nlu: input.clock?.nlu,
   };
   const processed = processMessage(state, inbound, clock);
 

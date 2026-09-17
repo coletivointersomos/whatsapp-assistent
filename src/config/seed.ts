@@ -34,6 +34,7 @@ export function seedState(): AppState {
     rejected: [],
     records: [],
     pauses: [],
+    statusUpdates: [],
     deferrals: [],
     suspensions: [],
     commands: [],

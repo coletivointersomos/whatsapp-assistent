@@ -6,10 +6,6 @@ export const DRIVER_MORNING =
   "Bom dia. Quando tiver algo do caminhão, pode mandar por áudio ou texto.";
 export const DRIVER_WHAT_TO_SEND =
   "Pode mandar abastecimento, despesa ou viagem. Se faltar algum dado, eu pergunto só o necessário.";
-export const ADMIN_STATUS =
-  "Estou acompanhando este grupo. Posso registrar abastecimentos, despesas e viagens, e pedir o que faltar.";
-export const ADMIN_HELP =
-  "Posso registrar dados dos motoristas, respeitar pausa da conversa e seguir comandos pela central.";
 export const CENTRAL_HELP =
   "Na central, posso suspender coleta por período e listar suspensões.";
 
@@ -35,13 +31,6 @@ export function matchDriverAssist(text: string): string | undefined {
   ) {
     return DRIVER_WHAT_TO_SEND;
   }
-  return undefined;
-}
-
-export function matchAdminAssist(text: string): string | undefined {
-  const n = normalizeAssist(text);
-  if (n === "onde estamos") return ADMIN_STATUS;
-  if (n === "ajuda") return ADMIN_HELP;
   return undefined;
 }
 

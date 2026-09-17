@@ -6,8 +6,6 @@ import { seedState } from "../src/config/seed.ts";
 import type { AppState, InboundMessage } from "../src/domain/types.ts";
 import { processMessage } from "../src/engine/process.ts";
 import {
-  ADMIN_HELP,
-  ADMIN_STATUS,
   CENTRAL_HELP,
   DRIVER_HELLO,
   DRIVER_MORNING,
@@ -51,7 +49,7 @@ describe("camada leve de assistente", () => {
     assert.equal(result.replies[0]?.text, DRIVER_WHAT_TO_SEND);
   });
 
-  it("admin pergunta onde estamos?", () => {
+  it("admin pergunta onde estamos e a NLU usa o contexto local", () => {
     const result = run(
       seedState(),
       msg({
@@ -62,7 +60,7 @@ describe("camada leve de assistente", () => {
       }),
     );
     assert.equal(result.decision, "assisted");
-    assert.equal(result.replies[0]?.text, ADMIN_STATUS);
+    assert.match(result.replies[0]?.text ?? "", /João|situação|viagem|pendência/i);
     assert.ok(result.pause);
   });
 
@@ -126,13 +124,13 @@ describe("camada leve de assistente", () => {
         externalId: "a8",
         authorId: "alana",
         authorRole: "alana",
-        text: "ajuda",
+        text: "quem é você?",
         sentAt: duringPause.toISOString(),
       }),
       duringPause,
     );
     assert.equal(admin.decision, "assisted");
-    assert.equal(admin.replies[0]?.text, ADMIN_HELP);
+    assert.match(admin.replies[0]?.text ?? "", /assistente operacional/i);
     assert.ok(admin.pause);
   });
 

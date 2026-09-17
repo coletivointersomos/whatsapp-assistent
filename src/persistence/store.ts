@@ -12,6 +12,7 @@ export function loadState(filePath: string): AppState {
   const raw = readFileSync(filePath, "utf8");
   const parsed = JSON.parse(raw) as AppState;
   if (!parsed.deferrals) parsed.deferrals = [];
+  if (!parsed.statusUpdates) parsed.statusUpdates = [];
   return parsed;
 }
 

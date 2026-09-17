@@ -3,12 +3,14 @@ import { describe, it } from "node:test";
 import { seedState } from "../src/config/seed.ts";
 import type { AppState, InboundMessage } from "../src/domain/types.ts";
 import { processMessage } from "../src/engine/process.ts";
+import { buildNluContext } from "../src/nlu/context.ts";
 import { createFakeProvider } from "../src/nlu/fakeProvider.ts";
 import { gateSensitiveIntent } from "../src/nlu/gate.ts";
 import { createLlmProvider } from "../src/nlu/llmProvider.ts";
 import { canCallRemoteLlm, loadNluConfig } from "../src/nlu/config.ts";
 import { validateNluResult } from "../src/nlu/schema.ts";
 import { localTotals } from "../src/nlu/totals.ts";
+import type { NluContext } from "../src/nlu/types.ts";
 
 const T0 = new Date("2026-09-09T12:00:00.000Z");
 
@@ -23,11 +25,128 @@ function msg(partial: Partial<InboundMessage> & Pick<InboundMessage, "externalId
   };
 }
 
-function run(state: AppState, inbound: InboundMessage, now = T0) {
-  return processMessage(state, inbound, { now: () => now });
+function run(state: AppState, inbound: InboundMessage, now = T0, nluEnabled?: boolean) {
+  return processMessage(state, inbound, { now: () => now, nluEnabled });
+}
+
+function emptyCtx(partial: Partial<NluContext> & Pick<NluContext, "message">): NluContext {
+  return {
+    conversationMasked: "…joao",
+    authorRole: "alana",
+    isAdmin: true,
+    paused: false,
+    driverName: "João",
+    openPendings: [],
+    recentMessages: [],
+    recentRecords: [],
+    recentExpenses: [],
+    permissions: { canWriteRecords: true, canWriteSheets: false, canBroadcast: false },
+    totals: { asOfDate: "2026-09-09", fuelBrlToday: 0, expenseBrlToday: 0, pendingCount: 0 },
+    ...partial,
+  };
+}
+
+function seedTrip(state: AppState) {
+  state.records.push({
+    id: "reg-trip-1",
+    kind: "viagem",
+    driverId: "motorista-joao",
+    status: "completo",
+    sourceMessageIds: ["trip-src"],
+    missing: [],
+    viagem: {
+      date: "2026-09-09",
+      origin: "Ceará",
+      destination: "Salvador",
+      material: "milho",
+      quantity: 30,
+      unit: "toneladas",
+    },
+  });
 }
 
 describe("nlu operacional assistant", () => {
+  it("context includes the recent trip", () => {
+    const state = seedState();
+    seedTrip(state);
+    const ctx = buildNluContext(state, msg({ externalId: "c1", text: "onde estamos?" }), {
+      authorRole: "alana",
+      isAdmin: true,
+      now: T0,
+      driverId: "motorista-joao",
+    });
+    assert.equal(ctx.currentTrip?.origin, "Ceará");
+    assert.equal(ctx.currentTrip?.destination, "Salvador");
+    assert.equal(ctx.currentTrip?.material, "milho");
+    assert.equal(ctx.driverName, "João");
+  });
+
+  it("driver BR 101 status becomes driver_status_update", () => {
+    const state = seedState();
+    seedTrip(state);
+    const result = run(
+      state,
+      msg({ externalId: "st-1", text: "estou na BR 101, ainda em Cratos no Ceará" }),
+    );
+    assert.equal(result.decision, "assisted");
+    assert.equal(state.statusUpdates.length, 1);
+    assert.match(state.statusUpdates[0].text, /BR 101/i);
+    assert.equal(state.statusUpdates[0].tripRecordId, "reg-trip-1");
+    const interpreted = createFakeProvider().interpret(
+      buildNluContext(state, msg({ externalId: "x", text: "estou na BR 101, ainda em Cratos no Ceará" }), {
+        authorRole: "motorista",
+        isAdmin: false,
+        now: T0,
+        driverId: "motorista-joao",
+      }),
+    ) as import("../src/nlu/types.ts").NluResult;
+    assert.equal(interpreted.intent, "driver_status_update");
+    assert.equal(interpreted.action, "store_status_update");
+  });
+
+  it("admin onde estamos uses the last operational update", () => {
+    const state = seedState();
+    seedTrip(state);
+    run(state, msg({ externalId: "st-1", text: "estou na BR 101, ainda em Cratos no Ceará" }));
+    const admin = run(
+      state,
+      msg({
+        externalId: "adm-where",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "onde estamos?",
+      }),
+    );
+    assert.equal(admin.decision, "assisted");
+    assert.match(admin.replies[0]?.text ?? "", /João/i);
+    assert.match(admin.replies[0]?.text ?? "", /milho/i);
+    assert.match(admin.replies[0]?.text ?? "", /Ceará/i);
+    assert.match(admin.replies[0]?.text ?? "", /Salvador/i);
+    assert.match(admin.replies[0]?.text ?? "", /BR 101|Cratos/i);
+  });
+
+  it("admin quem é você is answered from context by the fake provider", () => {
+    const fake = createFakeProvider();
+    const ctx = emptyCtx({ message: "quem é você?" });
+    const out = fake.interpret(ctx) as import("../src/nlu/types.ts").NluResult;
+    assert.equal(out.intent, "bot_identity_question");
+    assert.equal(out.action, "reply");
+    assert.match(out.reply ?? "", /assistente operacional/i);
+    assert.match(out.reply ?? "", /João/);
+    assert.match(out.reply ?? "", /não envio mensagem em massa/i);
+    const viaEngine = run(
+      seedState(),
+      msg({
+        externalId: "who",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "quem é você?",
+      }),
+    );
+    assert.equal(viaEngine.decision, "assisted");
+    assert.match(viaEngine.replies[0]?.text ?? "", /assistente operacional/i);
+  });
+
   it("sao joao completes place then hoje closes the fueling", () => {
     const state = seedState();
     run(state, msg({ externalId: "inc-1", text: "abasteci 150 litros, deu 980, assinada" }));
@@ -55,7 +174,7 @@ describe("nlu operacional assistant", () => {
       }),
     );
     assert.equal(hello.decision, "assisted");
-    assert.match(hello.replies[0]?.text ?? "", /escuto|aqui/i);
+    assert.match(hello.replies[0]?.text ?? "", /assistente|registro|escuto/i);
 
     const fuel = run(
       state,
@@ -94,6 +213,7 @@ describe("nlu operacional assistant", () => {
         text: "manda mensagem para todos os motoristas pedindo pendências",
       }),
     );
+    assert.equal(broadcast.decision, "assisted");
     assert.match(broadcast.replies[0]?.text ?? "", /não envio mensagem em massa/i);
     assert.equal(state.botReplies.length, beforeReplies + 1);
     assert.equal(state.conversations.filter((c) => c.role === "motorista").length, 2);
@@ -108,6 +228,7 @@ describe("nlu operacional assistant", () => {
       }),
     );
     assert.match(sheet.replies[0]?.text ?? "", /não altero o Sheets real/i);
+    assert.equal(sheet.decision, "assisted");
     assert.equal(state.records.length, 1);
 
     const lookup = run(
@@ -120,6 +241,26 @@ describe("nlu operacional assistant", () => {
       }),
     );
     assert.match(lookup.replies[0]?.text ?? "", /Não encontrei confirmação local/i);
+  });
+
+  it("sheet_change_request and broadcast_request require confirmation", () => {
+    const fake = createFakeProvider();
+    const sheet = gateSensitiveIntent(
+      fake.interpret(emptyCtx({ message: "cria uma coluna observação" })) as import("../src/nlu/types.ts").NluResult,
+      true,
+    );
+    assert.equal(sheet.intent, "sheet_change_request");
+    assert.equal(sheet.requiresConfirmation, true);
+    assert.equal(sheet.action, "block_sheets");
+    const broadcast = gateSensitiveIntent(
+      fake.interpret(
+        emptyCtx({ message: "manda mensagem para todos os motoristas pedindo pendências" }),
+      ) as import("../src/nlu/types.ts").NluResult,
+      true,
+    );
+    assert.equal(broadcast.intent, "broadcast_request");
+    assert.equal(broadcast.requiresConfirmation, true);
+    assert.equal(broadcast.action, "block_broadcast");
   });
 
   it("driver electrician expense is not ignored", () => {
@@ -136,18 +277,9 @@ describe("nlu operacional assistant", () => {
       confidence: 0.8,
       reasoning_summary: "ok",
     });
-    const ctx = {
-      authorRole: "alana" as const,
-      isAdmin: true,
-      paused: false,
-      message: "oi",
-      conversationMasked: "…joao",
-      recentMessages: [],
-      recentRecords: [],
-      totals: { fuelBrlToday: 0, expenseBrlToday: 0, pendingCount: 0 },
-    };
-    const ok = fake.interpret(ctx) as import("../src/nlu/types.ts").NluResult;
+    const ok = fake.interpret(emptyCtx({ message: "oi" })) as import("../src/nlu/types.ts").NluResult;
     assert.equal(ok.intent, "admin_question");
+    assert.equal(ok.action, "reply");
     assert.equal(validateNluResult("{not json").intent, "unknown");
     assert.equal(validateNluResult({ intent: "explode" }).intent, "unknown");
   });
@@ -155,6 +287,7 @@ describe("nlu operacional assistant", () => {
   it("sensitive intent without admin is blocked; with admin needs confirmation", () => {
     const raw = {
       intent: "broadcast_request" as const,
+      action: "block_broadcast" as const,
       confidence: 0.9,
       reasoning_summary: "mass",
       reply: "enviar",
@@ -167,12 +300,28 @@ describe("nlu operacional assistant", () => {
     assert.equal(admin.requiresConfirmation, true);
   });
 
-  it("NLU disabled keeps random driver chat ignored and does not call a remote LLM", () => {
+  it("NLU disabled keeps random driver chat ignored and does not break deterministic records", () => {
     const cfg = loadNluConfig({ LLM_NLU_ENABLED: "false", LLM_NLU_PROVIDER: "llm" });
     assert.equal(cfg.enabled, false);
     assert.equal(canCallRemoteLlm(cfg), false);
-    const result = run(seedState(), msg({ externalId: "rand", text: "blz vlw" }));
-    assert.equal(result.decision, "ignored");
+    const state = seedState();
+    const chatter = run(state, msg({ externalId: "rand", text: "blz vlw" }), T0, false);
+    assert.equal(chatter.decision, "ignored");
+    const statusOff = run(
+      state,
+      msg({ externalId: "st-off", text: "estou na BR 101, ainda em Cratos no Ceará" }),
+      T0,
+      false,
+    );
+    assert.equal(statusOff.decision, "ignored");
+    assert.equal(state.statusUpdates.length, 0);
+    const fuel = run(
+      state,
+      msg({ externalId: "det-1", text: "hoje abasteci 200 litros no posto X deu 1200 pago" }),
+      T0,
+      false,
+    );
+    assert.equal(fuel.decision, "record_created");
   });
 
   it("llm provider stays quiet without key or when disabled", async () => {
@@ -184,16 +333,7 @@ describe("nlu operacional assistant", () => {
       baseUrl: "https://example.invalid",
       timeoutMs: 50,
     });
-    const result = await provider.interpret({
-      authorRole: "alana",
-      isAdmin: true,
-      paused: false,
-      message: "oi",
-      conversationMasked: "…x",
-      recentMessages: [],
-      recentRecords: [],
-      totals: { fuelBrlToday: 0, expenseBrlToday: 0, pendingCount: 0 },
-    });
+    const result = await provider.interpret(emptyCtx({ message: "oi", authorRole: "alana", isAdmin: true }));
     assert.equal(result.intent, "unknown");
     assert.equal(canCallRemoteLlm(loadNluConfig({ LLM_NLU_ENABLED: "true", LLM_NLU_PROVIDER: "llm" })), false);
   });
