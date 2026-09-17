@@ -1,6 +1,7 @@
 import { maskJid } from "../inspect/mask.ts";
 import type { AppState, Conversation, InboundMessage } from "../domain/types.ts";
 import type { AssistantV2Context } from "./types.ts";
+import { looksOperationalV2 } from "./fallback.ts";
 import {
   activeOfKind,
   lastSessionStatus,
@@ -22,13 +23,17 @@ export function buildAssistantV2Context(input: {
   const activeTrip = activeOfKind(records, "viagem");
   const activeExpense = activeOfKind(records, "despesa");
   const activeFuel = activeOfKind(records, "abastecimento");
+  const hasPending = Boolean(activeTrip || activeExpense || activeFuel);
+  const operational = looksOperationalV2(input.inbound.text ?? "", hasPending);
   const driver = input.state.drivers.find((item) => item.id === input.conversation.driverId);
-  const recent = sessionMessages(input.state, input.conversation, sessionStartedAtMs)
-    .slice(-8)
-    .map((item) => ({
-      role: item.authorRole === "alana" ? "admin" : item.authorRole,
-      text: (item.text ?? "").slice(0, 240),
-    }));
+  const recent = operational
+    ? sessionMessages(input.state, input.conversation, sessionStartedAtMs)
+        .slice(-8)
+        .map((item) => ({
+          role: item.authorRole === "alana" ? "admin" : item.authorRole,
+          text: (item.text ?? "").slice(0, 240),
+        }))
+    : [];
   const tripIds = new Set(records.filter((item) => item.kind === "viagem").map((item) => item.id));
   const lastStatus = lastSessionStatus(input.state, input.conversation, sessionStartedAtMs, tripIds);
   let fuelBrl = 0;
@@ -42,32 +47,31 @@ export function buildAssistantV2Context(input: {
   return {
     conversationId: maskJid(input.conversation.id),
     authorRole: input.authorRole,
-    recordOwner: driver ? { id: driver.id, vehicle: driver.vehicleHint } : undefined,
-    vehicle: driver?.vehicleHint,
+    recordOwner: operational && driver ? { id: driver.id, vehicle: driver.vehicleHint } : undefined,
+    vehicle: operational ? driver?.vehicleHint : undefined,
     recentMessages: recent,
-    sessionRecords: records.map(toSessionView),
-    activeTrip: activeTrip ? toSessionView(activeTrip) : undefined,
-    activeExpense: activeExpense ? toSessionView(activeExpense) : undefined,
-    activeFuel: activeFuel ? toSessionView(activeFuel) : undefined,
-    lastStatusUpdate: lastStatus
-      ? { text: lastStatus.text, tripRecordId: lastStatus.tripRecordId }
-      : undefined,
-    totals: {
-      fuelBrl,
-      expenseBrl,
-      tripCount,
-      pendingCount: records.filter((item) => item.status === "incompleto").length,
-    },
+    sessionRecords: operational ? records.map(toSessionView) : [],
+    activeTrip: operational && activeTrip ? toSessionView(activeTrip) : undefined,
+    activeExpense: operational && activeExpense ? toSessionView(activeExpense) : undefined,
+    activeFuel: operational && activeFuel ? toSessionView(activeFuel) : undefined,
+    lastStatusUpdate:
+      operational && lastStatus ? { text: lastStatus.text, tripRecordId: lastStatus.tripRecordId } : undefined,
+    totals: operational
+      ? {
+          fuelBrl,
+          expenseBrl,
+          tripCount,
+          pendingCount: records.filter((item) => item.status === "incompleto").length,
+        }
+      : { fuelBrl: 0, expenseBrl: 0, tripCount: 0, pendingCount: 0 },
     capabilities: [
-      "conversar sobre qualquer assunto no WhatsApp",
-      "registrar abastecimento, despesa, viagem e status quando a mensagem for operacional",
-      "não inventar nome da pessoa",
-      "não puxar viagem em conversa solta",
-      "não envia broadcast sem confirmação",
-      "não altera Google Sheets real",
+      "conversar sobre a mensagem atual, qualquer assunto",
+      "não continuar assunto antigo se a pessoa mudou de tema",
+      "registrar viagem/despesa/abastecimento/status só quando a mensagem atual for operacional",
     ],
     allowedActions: ["record.create", "record.update", "status.create", "summary.query"],
     blockedActions: ["broadcast.request", "sheet.change.request", "ask_driver.request"],
     message: input.inbound.text ?? "",
+    currentUserMessage: input.inbound.text ?? "",
   };
 }

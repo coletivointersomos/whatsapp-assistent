@@ -4,6 +4,7 @@ import { seedState } from "../src/config/seed.ts";
 import type { AppState, InboundMessage } from "../src/domain/types.ts";
 import { processMessageAsync } from "../src/engine/process.ts";
 import type { AssistantV2Context, AssistantV2Provider, AssistantV2Response } from "../src/assistant-v2/types.ts";
+import { looksLikeGreeting } from "../src/assistant-v2/fallback.ts";
 
 const SESSION = "2026-09-17T18:00:00.000Z";
 const NOW = new Date("2026-09-17T19:00:00.000Z");
@@ -66,6 +67,14 @@ function plantOldTrip(state: AppState) {
   });
 }
 
+describe("assistant v2 chat topic lock", () => {
+  it("treats alô as greeting and a Grêmio question as a new topic", () => {
+    assert.equal(looksLikeGreeting("alô"), true);
+    assert.equal(looksLikeGreeting("e ai"), true);
+    assert.equal(looksLikeGreeting("e ai cara, quanto deu o jogo do gremio"), false);
+  });
+});
+
 describe("assistant v2 session runtime", () => {
   it("does not mention an old trip on alô and keeps the LLM greeting", async () => {
     const state = seedState();
@@ -122,6 +131,22 @@ describe("assistant v2 session runtime", () => {
     assert.match(out.replies[0]?.text ?? "", /farinha|ovos|bolo/i);
     assert.doesNotMatch(out.replies[0]?.text ?? "", /Curitiba|viagem|João|abastecimento/i);
     assert.equal(out.record, undefined);
+    const sport = await run(
+      state,
+      msg({ externalId: "g1", text: "e ai cara, quanto deu o jogo do gremio" }),
+      script((ctx) => ({
+        message:
+          ctx.sessionRecords.length || ctx.activeTrip || ctx.recentMessages.length
+            ? "Posso ajudar com a receita de bolo ou com a viagem."
+            : /gremio|grêmio/i.test(ctx.currentUserMessage)
+              ? "Não tenho o placar ao vivo agora."
+              : "Bolo de chocolate: ...",
+        actions: [],
+        confidence: 0.9,
+      })),
+    );
+    assert.equal(sport.replies[0]?.text, "Não tenho o placar ao vivo agora.");
+    assert.doesNotMatch(sport.replies[0]?.text ?? "", /bolo|viagem|Curitiba/i);
   });
 
   it("lets a group participant chat even if they are not the seeded driver", async () => {

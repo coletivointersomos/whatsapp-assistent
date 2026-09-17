@@ -1,6 +1,6 @@
 # 06 — Planilha preview/export (sem Google)
 
-**Status:** mapeamento local `OperationalRecord` → linha de planilha. **Não** conecta Google Sheets, Drive nem Workspace nesta etapa.  
+**Status:** TSV local. Escrita Google: `docs/07-planilha-google.md` (ainda off até credencial).  
 **Comando:** `npm run sheets:preview` (TSV no terminal). `--demo` força o estado previsível; sem `--demo`, lê `data/store.json` se existir (somente leitura).
 
 `records:preview` continua sendo diagnóstico de registros. Esta camada é a visão tabular para o experimento de quinta-feira.

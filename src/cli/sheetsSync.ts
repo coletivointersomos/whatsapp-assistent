@@ -3,8 +3,9 @@ import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 import { MemorySheetSink } from "../sheets/fakeSink.ts";
 import { loadSheetsLocalState } from "../sheets/localStore.ts";
-import { applySheetSync, isSheetsSyncEnabled } from "../sheets/sink.ts";
+import { canWriteGoogleSheets, loadSheetsWriteConfig, sheetsWriteSkipReason } from "../sheets/config.ts";
 import { formatSyncPlan, planSheetSyncFromSink } from "../sheets/sync.ts";
+import { formatRewritePreview, writeStateToGoogleSheet } from "../sheets/write.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const defaultStore = join(root, "data/store.json");
@@ -25,27 +26,37 @@ export async function runSheetsSyncCli(args: string[], env: NodeJS.ProcessEnv = 
   stdout: string;
   exitCode: number;
 }> {
-  if (args.includes("--apply")) {
-    try {
-      applySheetSync(new MemorySheetSink(), []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const enabled = isSheetsSyncEnabled(env);
-      return {
-        stdout: `Apply blocked: ${message}\nSHEETS_SYNC_ENABLED=${enabled ? "true" : "false"}\n`,
-        exitCode: 1,
-      };
-    }
-  }
-
+  const config = loadSheetsWriteConfig(env);
   const forceDemo = args.includes("--demo");
   const file = flagValue(args, "--file") ?? env.STORE_PATH ?? defaultStore;
   const { state, source } = loadSheetsLocalState(forceDemo, file);
+
+  if (args.includes("--apply")) {
+    const skip = sheetsWriteSkipReason(config);
+    if (skip) {
+      return {
+        stdout: `Apply blocked: ${skip}\nSHEETS_SYNC_ENABLED=${config.enabled ? "true" : "false"}\n`,
+        exitCode: 1,
+      };
+    }
+    const written = await writeStateToGoogleSheet({ state, config });
+    if (!written.ok) {
+      return { stdout: `Apply failed: ${written.reason}\nFonte: ${source}\n`, exitCode: 1 };
+    }
+    return {
+      stdout: `Apply ok. Fonte: ${source}. Linhas: ${written.rowCount}. Aba: ${config.tabName}.\n`,
+      exitCode: 0,
+    };
+  }
+
   const sink = new MemorySheetSink();
   const plan = await planSheetSyncFromSink(state, sink);
-  const note = "Aba remota não lida (adapter Google ausente). Plano assume aba vazia.\n";
+  const rewrite = formatRewritePreview({ state, config, source });
+  const note = canWriteGoogleSheets(config)
+    ? "Plano local (aba vazia). Gravacao Google: sheets:sync --apply\n"
+    : "Plano local assume aba vazia. Rewrite so roda com credencial + ID.\n";
   return {
-    stdout: `${note}${formatSyncPlan(plan, { source, mode: "dry-run" })}`,
+    stdout: `${rewrite}${note}${formatSyncPlan(plan, { source, mode: "dry-run" })}`,
     exitCode: 0,
   };
 }

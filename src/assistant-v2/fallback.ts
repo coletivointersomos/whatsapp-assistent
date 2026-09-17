@@ -25,7 +25,7 @@ export function looksOperationalV2(text: string, hasSessionPending: boolean): bo
 }
 
 export function looksLikeGreeting(text: string): boolean {
-  return /^(al[oô]|oi|ola|olá|eai|e ai|bom dia|boa tarde|boa noite)\b/i.test(text.trim());
+  return /^(al[oô]|oi|ola|olá|eai|e ai|bom dia|boa tarde|boa noite)[.!?]*$/i.test(text.trim());
 }
 
 export function buildV2FallbackActions(input: {

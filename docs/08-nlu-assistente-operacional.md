@@ -1,6 +1,10 @@
 # 08 — Assistente operacional (LLM-first)
 
-**Status:** com `LLM_NLU_ENABLED=true` e provider `llm`, a mensagem autorizada entra primeiro no NLU. Hermes/OpenWA continua só canal. O LLM **não** executa ação, **não** escreve Sheets e **não** faz broadcast.
+**Status chat (agora):** com `ASSISTANT_V2_ENABLED=true` o WhatsApp entra no Assistant V2: conversa livre na mensagem atual; registro só se a mensagem for operacional. Sheets/broadcast continuam bloqueados no chat.
+
+**Status NLU v1 (código ainda no repo):** com `LLM_NLU_ENABLED=true` e provider `llm`, o pipeline antigo interpreta JSON de intents. Não é o caminho do grupo quando o V2 está ligado.
+
+Hermes/OpenWA continua só canal. O LLM **não** executa ação sozinho e **não** faz broadcast.
 
 **Padrão (LLM ligado):** allowlist → `ConversationContext` → LLM JSON → engine valida → ação segura. Parser determinístico é fallback (falha, timeout, JSON inválido, confidence baixa) e normalizador de campos.
 

@@ -15,15 +15,15 @@ export type SheetSink = {
 };
 
 export class ApplyBlockedError extends Error {
-  constructor(message = "Google Sheets adapter is not implemented; --apply is blocked.") {
+  constructor(message = "Google Sheets write not configured.") {
     super(message);
     this.name = "ApplyBlockedError";
   }
 }
 
-/** Qualquer tentativa de escrita real nesta etapa. */
+/** MemorySheetSink não grava no Google. Apply real: writeStateToGoogleSheet. */
 export function applySheetSync(_sink: SheetSink, _plan: SyncDecision[]): never {
-  throw new ApplyBlockedError();
+  throw new ApplyBlockedError("Use writeStateToGoogleSheet for Google apply.");
 }
 
 export function isSheetsSyncEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

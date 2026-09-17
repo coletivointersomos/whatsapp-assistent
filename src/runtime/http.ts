@@ -3,6 +3,8 @@ import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { createOpenWaSender, disabledSender } from "../adapters/hermes/openwaSend.ts";
 import { seedState } from "../config/seed.ts";
 import { loadState, saveState } from "../persistence/store.ts";
+import { loadSheetsWriteConfig, sheetsWriteSkipReason } from "../sheets/config.ts";
+import { writeStateToGoogleSheet } from "../sheets/write.ts";
 import { describeSendMode, type RuntimeConfig } from "./config.ts";
 import { verifyWebhookHmac, verifyResumeAuth } from "./hmac.ts";
 import { handleInboundPayload } from "./pipeline.ts";
@@ -33,6 +35,19 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 function log(event: string, fields?: Record<string, unknown>): void {
   const line = { ts: new Date().toISOString(), event, ...fields };
   console.log(JSON.stringify(line));
+}
+
+async function persistState(runtime: RuntimeConfig, state: ReturnType<typeof seedState>): Promise<void> {
+  saveState(runtime.storePath, state);
+  const sheets = loadSheetsWriteConfig();
+  const skip = sheetsWriteSkipReason(sheets);
+  if (skip) {
+    if (sheets.enabled) log("sheets_sync_skipped", { reason: skip });
+    return;
+  }
+  const synced = await writeStateToGoogleSheet({ state, config: sheets });
+  if (synced.ok) log("sheets_sync_ok", { rowCount: synced.rowCount });
+  else log("sheets_sync_failed", { reason: synced.reason });
 }
 
 export function createAppServer(runtime: RuntimeConfig) {
@@ -90,7 +105,7 @@ export function createAppServer(runtime: RuntimeConfig) {
           requestedConversationId,
           log,
         });
-        saveState(runtime.storePath, state);
+        await persistState(runtime, state);
         json(res, result.httpStatus, result.body);
         return;
       }
@@ -129,7 +144,7 @@ export function createAppServer(runtime: RuntimeConfig) {
         sender,
         log,
       });
-      saveState(runtime.storePath, state);
+      await persistState(runtime, state);
       json(res, result.httpStatus, result.body);
     } catch (error) {
       log("webhook_error", { message: error instanceof Error ? error.message : "unknown" });

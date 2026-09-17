@@ -76,6 +76,7 @@ export type AssistantV2Context = {
   allowedActions: string[];
   blockedActions: string[];
   message: string;
+  currentUserMessage: string;
 };
 
 export type AssistantV2Provider = {

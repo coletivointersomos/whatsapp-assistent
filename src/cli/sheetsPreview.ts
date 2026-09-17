@@ -2,8 +2,9 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 import { formatSheetTable } from "../sheets/export.ts";
-import { recordsToRows } from "../sheets/mapper.ts";
 import { loadSheetsLocalState } from "../sheets/localStore.ts";
+import { loadSheetsWriteConfig } from "../sheets/config.ts";
+import { sheetRowsFromState } from "../sheets/write.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const defaultStore = join(root, "data/store.json");
@@ -29,7 +30,9 @@ if (isCliEntry()) {
   const forceDemo = args.includes("--demo");
   const file = flagValue(args, "--file") ?? process.env.STORE_PATH ?? defaultStore;
   const { state, source } = loadSheetsPreviewState(forceDemo, file);
-  const rows = recordsToRows(state);
+  const session = loadSheetsWriteConfig().sessionStartedAt;
+  const rows = sheetRowsFromState(state, session);
   process.stdout.write(`Fonte: ${source}\n`);
+  process.stdout.write(`Sessão: ${session ?? "todas"}\n`);
   process.stdout.write(formatSheetTable(rows));
 }

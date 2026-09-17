@@ -111,16 +111,18 @@ describe("sheets sync", () => {
     const result = await runSheetsSyncCli(["--demo"], { SHEETS_SYNC_ENABLED: "false" });
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /Modo: dry-run/);
+    assert.match(result.stdout, /rewrite da aba/);
     assert.match(result.stdout, /Insert: /);
     assert.equal(result.stdout.includes("googleapis"), false);
   });
 
-  it("blocks --apply even if SHEETS_SYNC_ENABLED=true", async () => {
+  it("blocks --apply until spreadsheet id and credentials file exist", async () => {
     assert.equal(isSheetsSyncEnabled({ SHEETS_SYNC_ENABLED: "true" }), true);
     assert.throws(() => applySheetSync(new MemorySheetSink(), []), ApplyBlockedError);
     const result = await runSheetsSyncCli(["--apply"], { SHEETS_SYNC_ENABLED: "true" });
     assert.equal(result.exitCode, 1);
     assert.match(result.stdout, /Apply blocked/);
-    assert.match(result.stdout, /not implemented/i);
+    assert.match(result.stdout, /missing_spreadsheet_id/);
+    assert.equal(result.stdout.includes("not implemented"), false);
   });
 });
