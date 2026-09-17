@@ -60,6 +60,9 @@ export function questionForMissing(
     const needVal = missing.includes("amountBrl");
     const needDate = missing.includes("date");
     const needPay = missing.includes("payment");
+    if (needVal && needPay && needDate) {
+      return `Entendi o gasto${name}. Qual foi o valor, a forma de pagamento e o dia?`;
+    }
     if (needVal && (needPay || needDate)) {
       if (needPay) return `Entendi o gasto${name}. Qual foi o valor e como foi pago?`;
       return `Entendi o gasto${name}. Qual foi o valor e em que dia aconteceu?`;

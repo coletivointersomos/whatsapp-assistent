@@ -38,7 +38,7 @@ describe("perguntas e confirmações curtas", () => {
     );
     assert.equal(
       questionForMissing("despesa", ["amountBrl", "date", "payment"], { description: "eletricista" }),
-      "Entendi o gasto com eletricista. Qual foi o valor e como foi pago?",
+      "Entendi o gasto com eletricista. Qual foi o valor, a forma de pagamento e o dia?",
     );
     assert.equal(
       questionForMissing("despesa", ["date"], { description: "eletricista", amountBrl: 250, payment: "pix" }),

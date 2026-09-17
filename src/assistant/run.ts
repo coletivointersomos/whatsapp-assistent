@@ -6,16 +6,15 @@ import type {
   BotReply,
   ConversationPause,
   InboundMessage,
-  OperationalRecord,
   ProcessResult,
   StoredMessage,
 } from "../domain/types.ts";
 import { looksLikeBotPauseRequest } from "../extraction/pending.ts";
 import { looksLikeAdminCommand } from "../extraction/extract.ts";
-import { looksLikeClosingConfirmation, looksLikeFollowupQuestion } from "../nlu/plan.ts";
 import { buildAssistantContext } from "./context.ts";
 import { executeAssistantActions, localSummaryFallback } from "./execute.ts";
 import { safeAssistantLogFields } from "./log.ts";
+import { composeFinalReplyFromOutcome } from "./reply.ts";
 import { isUsableAssistantResponse, type AssistantProvider } from "./types.ts";
 
 export type AssistantClock = {
@@ -48,47 +47,6 @@ function canSendProactive(
   if (pause && isPauseActive(pause.silenceUntil, now)) return false;
   if (driverId && activeSuspension(state, driverId, now)) return false;
   return true;
-}
-
-function naturalRecordAck(record: OperationalRecord): string {
-  if (record.kind === "viagem") {
-    const v = record.viagem ?? {};
-    const route = v.origin && v.destination ? ` de ${v.origin} para ${v.destination}` : "";
-    const cargo = v.material ? ` com ${v.material}` : "";
-    const qty = v.quantity !== undefined ? `, ${v.quantity}${v.unit ? ` ${v.unit}` : ""}` : "";
-    return `Fechado, registrei a viagem${route}${cargo}${qty}.`;
-  }
-  if (record.kind === "despesa") {
-    const d = record.despesa ?? {};
-    const name = d.description ? ` com ${d.description}` : "";
-    const amount = d.amountBrl !== undefined ? ` de R$ ${d.amountBrl}` : "";
-    const pay = d.payment ? ` no ${d.payment}` : "";
-    const date = d.date ? ` em ${d.date}` : "";
-    return `Fechado, registrei essa despesa${amount}${name}${pay}${date}.`;
-  }
-  return "Fechado, registrei esse abastecimento.";
-}
-
-function reconcileMessage(
-  message: string,
-  record: OperationalRecord | undefined,
-  blocked: Array<{ type: string; reason: string }>,
-  fallbackSummary?: string,
-): string {
-  const text = message.trim();
-  if (!text && fallbackSummary) return fallbackSummary;
-  if (!text && record) {
-    return record.status === "completo" ? naturalRecordAck(record) : "Certo, anotei. Pode completar o que faltou quando puder.";
-  }
-  if (!record) return text;
-  if (record.status === "completo" && looksLikeFollowupQuestion(text)) return naturalRecordAck(record);
-  if (record.status === "incompleto" && looksLikeClosingConfirmation(text) && !looksLikeFollowupQuestion(text)) {
-    return text;
-  }
-  if (blocked.length && !text) {
-    return "Posso preparar, mas preciso de confirmação antes de executar isso.";
-  }
-  return text;
 }
 
 function dangerousMessage(text: string): boolean {
@@ -179,10 +137,16 @@ export async function runAssistant(
 
   const summaryAction = interpreted.actions.find((action) => action.type === "summary.query");
   const summary =
-    summaryAction && !interpreted.message.trim()
-      ? localSummaryFallback(state, summaryAction.scope, now)
+    summaryAction && !outcome.record && !outcome.statusCreated
+      ? interpreted.message.trim() || localSummaryFallback(state, summaryAction.scope, now)
       : undefined;
-  const message = reconcileMessage(interpreted.message, outcome.record, outcome.blocked, summary);
+  const message = composeFinalReplyFromOutcome({
+    state,
+    conversationDriverId: conversation.driverId,
+    outcome,
+    llmMessage: interpreted.message,
+    summaryFallback: summary,
+  });
   const allowReply = isAdmin || canSendProactive(state, conversation.id, conversation.driverId, now);
   const replies = allowReply && message ? [pushReply(state, conversation.id, message)] : [];
 

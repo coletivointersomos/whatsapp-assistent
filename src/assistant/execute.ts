@@ -27,6 +27,7 @@ export type ActionOutcome = {
   blocked: Array<{ type: string; reason: string }>;
   record?: OperationalRecord;
   decision: ProcessDecision;
+  statusCreated?: boolean;
 };
 
 function missingOf(record: OperationalRecord): string[] {
@@ -140,6 +141,7 @@ export function executeAssistantActions(input: {
   const blocked: Array<{ type: string; reason: string }> = [];
   let record: OperationalRecord | undefined;
   let decision: ProcessDecision = "assisted";
+  let statusCreated = false;
 
   for (const action of response.actions) {
     if (action.type === "broadcast.request" || action.type === "sheet.change.request" || action.type === "ask_driver.request") {
@@ -170,6 +172,7 @@ export function executeAssistantActions(input: {
       };
       state.statusUpdates.push(update);
       applied.push(action.type);
+      statusCreated = true;
       continue;
     }
 
@@ -225,7 +228,7 @@ export function executeAssistantActions(input: {
     }
   }
 
-  return { applied, blocked, record, decision };
+  return { applied, blocked, record, decision, statusCreated };
 }
 
 export function localSummaryFallback(state: AppState, scope: string, now: Date): string {

@@ -84,17 +84,60 @@ describe("assistant product runtime", () => {
     const state = seedState();
     const first = await run(state, msg({ externalId: "t1", text: "nova viagem de curitiba para nova veneza" }), assistant);
     assert.equal(first.decision, "record_incomplete");
+    assert.equal(first.record?.status, "incompleto");
     assert.match(first.replies[0]?.text ?? "", /carga e a quantidade/i);
-    assert.doesNotMatch(first.replies[0]?.text ?? "", /^Qual foi a carga/);
     const done = await run(state, msg({ externalId: "t2", text: "soja, 47 m3" }), assistant);
     assert.equal(state.records.length, 1);
     assert.equal(done.record?.status, "completo");
     assert.equal(done.record?.viagem?.material, "soja");
     assert.equal(done.record?.viagem?.quantity, 47);
     assert.equal(done.record?.viagem?.unit, "m³");
-    assert.match(done.replies[0]?.text ?? "", /soja/i);
-    assert.match(done.replies[0]?.text ?? "", /47/i);
-    assert.doesNotMatch(done.replies[0]?.text ?? "", /unidade da carga/i);
+    assert.match(done.replies[0]?.text ?? "", /Fechado, registrei a viagem/i);
+    assert.doesNotMatch(done.replies[0]?.text ?? "", /unidade da carga|Qual foi a carga/i);
+  });
+
+  it("closes a pending trip from arroz, 55 m3 even if the LLM still asks for cargo", async () => {
+    const assistant = script((ctx) => {
+      if (/nova viagem/i.test(ctx.message)) {
+        return {
+          message: "Entendi. Qual foi a carga e a quantidade?",
+          actions: [
+            {
+              type: "record.create",
+              recordType: "viagem",
+              fields: { origin: "Curitiba", destination: "Nova Veneza" },
+              missingFields: ["material", "quantity"],
+            },
+          ],
+          confidence: 0.94,
+        };
+      }
+      return {
+        message: "Pode confirmar a carga e a quantidade dessa viagem?",
+        actions: [
+          {
+            type: "record.update",
+            recordId: ctx.openPendings[0]?.split(" ")[0] ?? "",
+            fields: { material: "arroz", quantity: 55, unit: "m3" },
+            missingFields: [],
+          },
+        ],
+        confidence: 0.9,
+      };
+    });
+    const state = seedState();
+    const open = await run(state, msg({ externalId: "a1", text: "nova viagem de curitiba para nova veneza" }), assistant);
+    assert.match(open.replies[0]?.text ?? "", /carga e a quantidade/i);
+    const done = await run(state, msg({ externalId: "a2", text: "arroz, 55 m3" }), assistant);
+    assert.equal(done.record?.status, "completo");
+    assert.equal(done.record?.viagem?.material, "arroz");
+    assert.equal(done.record?.viagem?.quantity, 55);
+    assert.equal(done.record?.viagem?.unit, "m³");
+    assert.equal(
+      done.replies[0]?.text,
+      "Fechado, registrei a viagem de Curitiba para Nova Veneza com arroz, 55 m³.",
+    );
+    assert.doesNotMatch(done.replies[0]?.text ?? "", /confirmar|carga e a quantidade/i);
   });
 
   it("records an electrician expense through a natural three-step conversation", async () => {
@@ -142,12 +185,14 @@ describe("assistant product runtime", () => {
       };
     });
     const state = seedState();
-    await run(state, msg({ externalId: "e1", text: "teve um gasto com eletricista" }), assistant);
+    const first = await run(state, msg({ externalId: "e1", text: "teve um gasto com eletricista" }), assistant);
+    assert.match(first.replies[0]?.text ?? "", /valor/i);
+    assert.match(first.replies[0]?.text ?? "", /pagamento|pago|dia/i);
     const pix = await run(state, msg({ externalId: "e2", text: "250 no pix" }), assistant);
     assert.equal(pix.record?.despesa?.amountBrl, 250);
     assert.equal(pix.record?.despesa?.payment, "pix");
-    assert.match(pix.replies[0]?.text ?? "", /pix/i);
-    assert.doesNotMatch(pix.replies[0]?.text ?? "", /^Foi hoje ou outro dia\?$/);
+    assert.match(pix.replies[0]?.text ?? "", /dia exato/i);
+    assert.doesNotMatch(pix.replies[0]?.text ?? "", /carga|quantidade/i);
     const done = await run(state, msg({ externalId: "e3", text: "foi ontem" }), assistant);
     assert.equal(done.record?.status, "completo");
     assert.equal(done.record?.despesa?.date, "2026-09-08");
@@ -166,7 +211,8 @@ describe("assistant product runtime", () => {
     assert.equal(state.records.length, 0);
     assert.equal(state.statusUpdates.length, 1);
     assert.match(state.statusUpdates[0].text, /Cratos/);
-    assert.match(out.replies[0]?.text ?? "", /Cratos/i);
+    assert.match(out.replies[0]?.text ?? "", /Anotei a atualização/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /carga e a quantidade/i);
   });
 
   it("answers admin location from local trip and status context", async () => {
@@ -239,7 +285,7 @@ describe("assistant product runtime", () => {
       logs,
     );
     assert.equal(out.decision, "assisted");
-    assert.match(out.replies[0]?.text ?? "", /confirmação/i);
+    assert.equal(out.replies[0]?.text, "Posso preparar isso, mas preciso de confirmação antes de executar.");
     assert.equal(before.conversations.length, convCount);
     assert.ok(logs.some((l) => l.event === "assistant_actions_blocked"));
   });
