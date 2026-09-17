@@ -3,6 +3,8 @@ import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
 import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import { createAssistantProvider } from "../assistant/provider.ts";
+import { createAssistantV2Provider } from "../assistant-v2/provider.ts";
+import { loadAssistantV2Config } from "../assistant-v2/config.ts";
 import type { AppState } from "../domain/types.ts";
 import { processMessage, processMessageAsync, type Clock } from "../engine/process.ts";
 import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
@@ -50,54 +52,58 @@ export async function handleInboundPayload(input: {
 
   const inbound = normalized.inbound;
   const nluConfig = loadNluConfig(process.env);
-  const nlu =
-    input.clock?.nlu ??
-    createNluProvider(nluConfig, {
-      onHttp: (info) =>
-        log("nlu_http", {
-          status: info.status,
-          ok: info.ok,
-          statusText: info.statusText,
-          host: info.host,
-          path: info.path,
-          usedResponseFormat: info.usedResponseFormat,
-          bodyPreview: info.bodyPreview,
-        }),
-    });
+  const v2Config = loadAssistantV2Config(process.env);
+  const httpHooks = {
+    onHttp: (info: {
+      status: number;
+      ok: boolean;
+      statusText: string;
+      host: string;
+      path: string;
+      usedResponseFormat: boolean;
+      bodyPreview: string;
+    }) =>
+      log("nlu_http", {
+        status: info.status,
+        ok: info.ok,
+        statusText: info.statusText,
+        host: info.host,
+        path: info.path,
+        usedResponseFormat: info.usedResponseFormat,
+        bodyPreview: info.bodyPreview,
+      }),
+  };
+  const nlu = input.clock?.nlu ?? createNluProvider(nluConfig, httpHooks);
   const llmReady =
     input.clock?.nluFirst === true ||
     (input.clock?.nluFirst !== false && canCallRemoteLlm(nluConfig) && input.clock?.nluEnabled !== false);
+  const v2On = input.clock?.assistantV2Enabled ?? v2Config.enabled;
   const assistant =
     input.clock?.assistant ??
-    (canCallRemoteLlm(nluConfig)
-      ? createAssistantProvider(nluConfig, fetch, {
-          onHttp: (info) =>
-            log("nlu_http", {
-              status: info.status,
-              ok: info.ok,
-              statusText: info.statusText,
-              host: info.host,
-              path: info.path,
-              usedResponseFormat: info.usedResponseFormat,
-              bodyPreview: info.bodyPreview,
-            }),
-        })
-      : undefined);
+    (canCallRemoteLlm(nluConfig) && !v2On ? createAssistantProvider(nluConfig, fetch, httpHooks) : undefined);
+  const assistantV2 =
+    input.clock?.assistantV2 ??
+    (v2On && canCallRemoteLlm(nluConfig) ? createAssistantV2Provider(nluConfig, fetch, httpHooks) : undefined);
   const clock: Clock = {
     now: input.clock?.now ?? (() => new Date(inbound.sentAt)),
     nluEnabled: input.clock?.nluEnabled,
     nlu,
-    nluFirst: llmReady,
+    nluFirst: v2On ? false : llmReady,
     assistant,
-    assistantFirst: input.clock?.assistantFirst ?? llmReady,
+    assistantFirst: v2On ? false : (input.clock?.assistantFirst ?? llmReady),
+    assistantV2Enabled: v2On,
+    assistantV2SessionStartedAt: input.clock?.assistantV2SessionStartedAt ?? v2Config.sessionStartedAt,
+    assistantV2,
     nluLog: input.clock?.nluLog ?? ((event, fields) => log(event, fields)),
   };
   const processed =
-    clock.assistantFirst || llmReady
+    clock.assistantV2Enabled || clock.assistantFirst || llmReady
       ? await processMessageAsync(state, inbound, clock)
       : processMessage(state, inbound, clock);
 
-  if (clock.assistantFirst) {
+  if (clock.assistantV2Enabled) {
+    log("assistant_v2", { provider: assistantV2?.name ?? "none", decision: processed.decision });
+  } else if (clock.assistantFirst) {
     log("assistant_first", { provider: assistant?.name ?? "none", decision: processed.decision });
   } else if (llmReady) {
     log("nlu_first", { provider: nlu?.name ?? "none", decision: processed.decision });

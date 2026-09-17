@@ -44,6 +44,7 @@ import { applyLlmInterpretation } from "./nluExecute.ts";
 import { planPendingResume } from "./resume.ts";
 import type { AssistantProvider } from "../assistant/types.ts";
 import { runAssistant } from "../assistant/run.ts";
+import { runAssistantV2, type AssistantV2Clock } from "../assistant-v2/run.ts";
 
 export type Clock = {
   now: () => Date;
@@ -52,6 +53,9 @@ export type Clock = {
   nluFirst?: boolean;
   assistant?: AssistantProvider;
   assistantFirst?: boolean;
+  assistantV2Enabled?: boolean;
+  assistantV2SessionStartedAt?: string;
+  assistantV2?: AssistantV2Clock["assistantV2"];
   nluLog?: (event: string, fields: Record<string, unknown>) => void;
 };
 
@@ -143,6 +147,10 @@ export async function processMessageAsync(
   inboundRaw: InboundMessage,
   clock: Clock,
 ): Promise<ProcessResult> {
+  if (clock.assistantV2Enabled) {
+    const v2 = await runAssistantV2(state, inboundRaw, clock);
+    if (v2) return v2;
+  }
   if (clock.assistant && clock.assistantFirst !== false) {
     const assisted = await runAssistant(state, inboundRaw, clock);
     if (assisted) return assisted;
