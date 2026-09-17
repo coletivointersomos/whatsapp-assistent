@@ -16,6 +16,7 @@ import {
   buildV2FallbackActions,
   looksLikeGreeting,
   looksOperationalV2,
+  chatUnavailableReply,
 } from "./fallback.ts";
 import { composeV2Reply } from "./reply.ts";
 import { activeOfKind, parseSessionStart, sessionRecords } from "./session.ts";
@@ -186,9 +187,7 @@ export async function runAssistantV2(
   if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked) {
     message = V2_MISSING_ACTION_RETRY;
   } else if (!message.trim()) {
-    message = looksLikeGreeting(inbound.text ?? "")
-      ? "Oi, estou aqui. Pode perguntar o que quiser."
-      : "Não peguei. Pode repetir?";
+    message = chatUnavailableReply(inbound.text ?? "", interpreted.notes);
   }
 
   const replies = message ? [pushReply(state, conversation.id, message)] : [];

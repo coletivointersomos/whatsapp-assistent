@@ -28,6 +28,17 @@ export function looksLikeGreeting(text: string): boolean {
   return /^(al[oô]|oi|ola|olá|eai|e ai|bom dia|boa tarde|boa noite)[.!?]*$/i.test(text.trim());
 }
 
+export function chatUnavailableReply(text: string, notes?: string): string {
+  if (looksLikeGreeting(text)) return "Oi, estou aqui. Pode perguntar o que quiser.";
+  if (/\bhermes\b/i.test(text) || /voc[eê]\s+[eé]\s+(um|o)\s+hermes/i.test(text)) {
+    return "Sou o Hermes, assistente da Transportadora Arnaldo no WhatsApp. Posso conversar e anotar viagem, despesa e abastecimento.";
+  }
+  if (notes?.startsWith("llm_http") || notes === "llm_failed" || notes === "llm_empty_content" || notes === "unusable") {
+    return "Tô aqui, mas o modelo de conversa não respondeu agora. Pode mandar de novo daqui a pouco.";
+  }
+  return "Não peguei. Pode repetir?";
+}
+
 export function buildV2FallbackActions(input: {
   state: AppState;
   inbound: InboundMessage;

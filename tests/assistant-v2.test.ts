@@ -4,7 +4,8 @@ import { seedState } from "../src/config/seed.ts";
 import type { AppState, InboundMessage } from "../src/domain/types.ts";
 import { processMessageAsync } from "../src/engine/process.ts";
 import type { AssistantV2Context, AssistantV2Provider, AssistantV2Response } from "../src/assistant-v2/types.ts";
-import { looksLikeGreeting } from "../src/assistant-v2/fallback.ts";
+import { emptyAssistantV2 } from "../src/assistant-v2/types.ts";
+import { chatUnavailableReply, looksLikeGreeting } from "../src/assistant-v2/fallback.ts";
 
 const SESSION = "2026-09-17T18:00:00.000Z";
 const NOW = new Date("2026-09-17T19:00:00.000Z");
@@ -72,6 +73,8 @@ describe("assistant v2 chat topic lock", () => {
     assert.equal(looksLikeGreeting("alô"), true);
     assert.equal(looksLikeGreeting("e ai"), true);
     assert.equal(looksLikeGreeting("e ai cara, quanto deu o jogo do gremio"), false);
+    assert.match(chatUnavailableReply("voce é um hermes?", "llm_http:401"), /Sou o Hermes/i);
+    assert.match(chatUnavailableReply("quanto foi o jogo do palmeiras?", "llm_http:401"), /modelo de conversa/i);
   });
 });
 
@@ -168,6 +171,16 @@ describe("assistant v2 session runtime", () => {
     );
     assert.doesNotMatch(out.replies[0]?.text ?? "", /João/i);
     assert.match(out.replies[0]?.text ?? "", /receita|farinha/i);
+  });
+
+  it("answers identity when the LLM HTTP call fails", async () => {
+    const out = await run(
+      seedState(),
+      msg({ externalId: "id1", text: "voce é um hermes?" }),
+      { name: "down", interpret: () => emptyAssistantV2("llm_http:401") },
+    );
+    assert.match(out.replies[0]?.text ?? "", /Sou o Hermes/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /Não peguei/i);
   });
 
   it("creates a session trip from nova viagem de curitiba para nova veneza", async () => {
