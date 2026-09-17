@@ -27,7 +27,7 @@ describe("schedule preview", () => {
         authorRole: "alana",
         sentAt: t0.toISOString(),
         type: "texto",
-        text: "já vi",
+        text: "deixa comigo",
       },
       { now: () => t0 },
     );

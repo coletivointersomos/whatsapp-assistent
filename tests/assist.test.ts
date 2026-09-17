@@ -61,7 +61,7 @@ describe("camada leve de assistente", () => {
     );
     assert.equal(result.decision, "assisted");
     assert.match(result.replies[0]?.text ?? "", /João|situação|viagem|pendência/i);
-    assert.ok(result.pause);
+    assert.equal(result.pause, undefined);
   });
 
   it("central recebe ajuda", () => {
@@ -102,7 +102,7 @@ describe("camada leve de assistente", () => {
         externalId: "alana-1",
         authorId: "alana",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     const duringPause = new Date(T0.getTime() + 2 * 60 * 1000);
@@ -131,7 +131,6 @@ describe("camada leve de assistente", () => {
     );
     assert.equal(admin.decision, "assisted");
     assert.match(admin.replies[0]?.text ?? "", /assistente operacional/i);
-    assert.ok(admin.pause);
   });
 
   it("bot/fromMe é ignorado", () => {

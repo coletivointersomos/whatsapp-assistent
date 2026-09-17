@@ -73,7 +73,7 @@ describe("LLM-first pipeline", () => {
 
   it("completes the pending electrician expense from pix follow-up", async () => {
     const nlu = scriptedLlm((ctx) => {
-      if (/eletricista/i.test(ctx.message) && !/250/.test(ctx.message)) {
+      if (/eletricista/i.test(ctx.message) && !/250/.test(ctx.message) && !/outro dia/i.test(ctx.message)) {
         return result({
           intent: "record_event",
           action: "create_record",
@@ -81,7 +81,7 @@ describe("LLM-first pipeline", () => {
           confidence: 0.9,
           reasoning_summary: "open_expense",
           fields: { description: "eletricista" },
-          reply: "Entendi o gasto com eletricista. Qual foi o valor e como foi pago?",
+          reply: "Posso anotar o gasto com eletricista. Qual foi o valor e como pagou?",
         });
       }
       if (/250/.test(ctx.message) && /pix/i.test(ctx.message)) {
@@ -92,8 +92,7 @@ describe("LLM-first pipeline", () => {
           confidence: 0.93,
           reasoning_summary: "complete_expense",
           fields: { amountBrl: 250, payment: "pix" },
-          targetRecordId: ctx.openPendings[0]?.split(" ")[0],
-          reply: "Fechado, registrei essa despesa de R$ 250 com eletricista no pix.",
+          reply: "Registrei R$ 250 com eletricista no pix. Qual foi o dia exato desse gasto?",
         });
       }
       if (/outro dia/i.test(ctx.message)) {
@@ -101,26 +100,29 @@ describe("LLM-first pipeline", () => {
           intent: "complete_record",
           action: "update_record",
           recordType: "despesa",
-          confidence: 0.7,
-          reasoning_summary: "not_today",
-          reply: "Certo. Qual foi o valor desse gasto com eletricista?",
+          confidence: 0.8,
+          reasoning_summary: "approx_date",
+          reply: "Certo. Você lembra o dia exato? Pode ser algo como 15/09.",
         });
       }
       return unknownNlu("nope");
     }, []);
     const state = seedState();
-    await runFirst(state, msg({ externalId: "el-1", text: "teve um gasto extra com eletricista" }), nlu);
-    const mid = await runFirst(state, msg({ externalId: "el-2", text: "outro dia" }), nlu);
-    assert.match(mid.replies[0]?.text ?? "", /valor/i);
+    const first = await runFirst(state, msg({ externalId: "el-1", text: "teve um gasto extra com eletricista" }), nlu);
+    assert.equal(first.replies[0]?.text, "Posso anotar o gasto com eletricista. Qual foi o valor e como pagou?");
+    const done = await runFirst(state, msg({ externalId: "el-2", text: "o gasto do eletricista foi 250 no pix" }), nlu);
     assert.equal(state.records.length, 1);
-    const done = await runFirst(state, msg({ externalId: "el-3", text: "o gasto do eletricista foi 250 no pix" }), nlu);
-    assert.equal(state.records.length, 1);
-    assert.equal(done.record?.status, "incompleto");
+    assert.equal(done.record?.id, first.record?.id);
     assert.equal(done.record?.despesa?.amountBrl, 250);
     assert.equal(done.record?.despesa?.payment, "pix");
-    assert.equal(done.record?.despesa?.description, "eletricista");
     assert.ok(done.record?.missing.includes("date"));
-    assert.match(done.replies[0]?.text ?? "", /hoje|dia/i);
+    assert.equal(done.replies[0]?.text, "Registrei R$ 250 com eletricista no pix. Qual foi o dia exato desse gasto?");
+    assert.doesNotMatch(done.replies[0]?.text ?? "", /^Foi hoje ou outro dia\?$/);
+    const mid = await runFirst(state, msg({ externalId: "el-3", text: "outro dia" }), nlu);
+    assert.equal(mid.decision, "record_incomplete");
+    assert.equal(mid.replies[0]?.text, "Certo. Você lembra o dia exato? Pode ser algo como 15/09.");
+    assert.match(mid.record?.despesa?.note ?? "", /outro dia/);
+    assert.equal(state.records.length, 1);
   });
 
   it("records a complete fueling via LLM", async () => {
@@ -287,5 +289,91 @@ describe("LLM-first pipeline", () => {
     assert.equal(out.record?.kind, "despesa");
     assert.equal(calls.length, 0);
     assert.match(out.replies[0]?.text ?? "", /valor/i);
+  });
+
+  it("logs NLU fields without secrets", async () => {
+    const logs: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const nlu: NluProvider = {
+      name: "llm",
+      interpret: () =>
+        result({
+          intent: "record_event",
+          action: "create_record",
+          recordType: "despesa",
+          confidence: 0.9,
+          reasoning_summary: "ok",
+          reply: "Posso anotar. Qual o valor?",
+        }),
+    };
+    await processMessageAsync(seedState(), msg({ externalId: "log-1", text: "teve um gasto extra com eletricista" }), {
+      now: () => T0,
+      nluFirst: true,
+      nlu,
+      nluLog: (event, fields) => logs.push({ event, fields }),
+    });
+    const nluLog = logs.find((l) => l.event === "nlu_result");
+    assert.ok(nluLog);
+    assert.equal(nluLog?.fields.provider, "llm");
+    assert.equal(nluLog?.fields.intent, "record_event");
+    assert.equal(nluLog?.fields.action, "create_record");
+    assert.equal(nluLog?.fields.hasReply, true);
+    const blob = JSON.stringify(logs);
+    assert.doesNotMatch(blob, /sk-/i);
+    assert.doesNotMatch(blob, /HMAC/i);
+    assert.doesNotMatch(blob, /Bearer /);
+    assert.doesNotMatch(blob, /openrouter/i);
+  });
+
+  it("reuses a similar open electrician expense instead of duplicating", async () => {
+    const state = seedState();
+    state.records.push({
+      id: "reg-zombie",
+      kind: "despesa",
+      driverId: "motorista-joao",
+      status: "incompleto",
+      sourceMessageIds: ["old-el"],
+      missing: ["amountBrl", "payment", "date"],
+      despesa: { description: "eletricista", vehicle: "caminhão 1" },
+    });
+    state.messages.push({
+      externalId: "old-el",
+      conversationId: "conv-joao",
+      authorId: "motorista-joao",
+      authorRole: "motorista",
+      sentAt: T0.toISOString(),
+      processedAt: T0.toISOString(),
+      type: "texto",
+      text: "gasto extra eletricista",
+    });
+    const nlu = scriptedLlm(
+      () =>
+        result({
+          intent: "record_event",
+          action: "create_record",
+          recordType: "despesa",
+          confidence: 0.9,
+          reasoning_summary: "open",
+          fields: { description: "eletricista" },
+          reply: "Qual foi o valor do eletricista?",
+        }),
+      [],
+    );
+    const out = await runFirst(state, msg({ externalId: "el-new", text: "teve um gasto extra com eletricista" }), nlu);
+    assert.equal(out.record?.id, "reg-zombie");
+    assert.equal(state.records.filter((r) => r.kind === "despesa").length, 1);
+  });
+
+  it("asks exact date after pix even if the LLM fails", async () => {
+    const nlu: NluProvider = {
+      name: "llm",
+      interpret: async () => unknownNlu("llm_failed"),
+    };
+    const state = seedState();
+    await runFirst(state, msg({ externalId: "el-1", text: "teve um gasto extra com eletricista" }), nlu);
+    const pix = await runFirst(state, msg({ externalId: "el-2", text: "o gasto do eletricista foi 250 no pix" }), nlu);
+    assert.equal(pix.replies[0]?.text, "Registrei R$ 250 com eletricista no pix. Qual foi o dia exato desse gasto?");
+    const approx = await runFirst(state, msg({ externalId: "el-3", text: "outro dia" }), nlu);
+    assert.equal(approx.decision, "record_incomplete");
+    assert.equal(approx.replies[0]?.text, "Certo. Você lembra o dia exato? Pode ser algo como 15/09.");
   });
 });

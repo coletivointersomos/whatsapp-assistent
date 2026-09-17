@@ -17,7 +17,7 @@ describe("simulate", () => {
             authorRole: "alana",
             sentAt: "2026-09-09T12:00:00.000Z",
             type: "texto",
-            text: "já vi aqui",
+            text: "deixa comigo",
           },
           {
             externalId: "d1",

@@ -23,7 +23,7 @@ import type {
   ProcessResult,
   StoredMessage,
 } from "../domain/types.ts";
-import { confirmationForRecord, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
+import { confirmationForRecord, approximateDateFollowup, expenseDateFollowup, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
 import { matchCentralAssist, matchDriverAssist } from "../extraction/assist.ts";
 import {
   extractFromText,
@@ -32,6 +32,8 @@ import {
   isNewOperationalEvent,
   looksLikeAdminCommand,
 } from "../extraction/extract.ts";
+import { findCompatiblePending, isApproximateDatePhrase, looksLikeBotPauseRequest } from "../extraction/pending.ts";
+import { nluRejectReason, safeNluLogFields } from "../nlu/audit.ts";
 import { buildNluContext } from "../nlu/context.ts";
 import { createFakeProvider } from "../nlu/fakeProvider.ts";
 import { gateSensitiveIntent } from "../nlu/gate.ts";
@@ -40,7 +42,13 @@ import { isUsableLlmResult, unknownNlu, type NluAuthorRole, type NluProvider, ty
 import { applyLlmInterpretation } from "./nluExecute.ts";
 import { planPendingResume } from "./resume.ts";
 
-export type Clock = { now: () => Date; nluEnabled?: boolean; nlu?: NluProvider; nluFirst?: boolean };
+export type Clock = {
+  now: () => Date;
+  nluEnabled?: boolean;
+  nlu?: NluProvider;
+  nluFirst?: boolean;
+  nluLog?: (event: string, fields: Record<string, unknown>) => void;
+};
 
 function resolveLocalNlu(clock: Clock): NluProvider | undefined {
   if (clock.nluEnabled === false) return undefined;
@@ -80,7 +88,19 @@ function interpretLocal(
 }
 
 function expenseHint(record: OperationalRecord | undefined) {
-  return { description: record?.despesa?.description };
+  return {
+    description: record?.despesa?.description,
+    amountBrl: record?.despesa?.amountBrl,
+    payment: record?.despesa?.payment,
+  };
+}
+
+function engineRecordReply(record: OperationalRecord): string {
+  if (record.status === "completo") return confirmationForRecord(record.kind, record);
+  if (record.kind === "despesa" && record.missing.includes("date") && !record.missing.includes("amountBrl")) {
+    return expenseDateFollowup(record.despesa?.description, record.despesa?.amountBrl, record.despesa?.payment);
+  }
+  return questionForMissing(record.kind, record.missing, expenseHint(record));
 }
 
 function applyFirstNlu(
@@ -149,7 +169,17 @@ export async function processMessageAsync(
     interpreted = unknownNlu("llm_failed");
   }
 
-  if (!isUsableLlmResult(interpreted)) {
+  const rejectReason = nluRejectReason(interpreted);
+  const emit = clock.nluLog;
+  emit?.("nlu_result", safeNluLogFields({
+    provider: clock.nlu.name,
+    result: interpreted,
+    rejectReason,
+    applied: !rejectReason,
+  }));
+
+  if (rejectReason) {
+    emit?.("nlu_rejected", { rejectReason, provider: clock.nlu.name, intent: interpreted.intent, action: interpreted.action });
     return processMessage(state, inboundRaw, { ...clock, nluFirst: false, nlu: createFakeProvider() });
   }
 
@@ -396,16 +426,19 @@ export function processMessage(
 
   if (authorRole === "alana") {
     const sentAt = new Date(inbound.sentAt);
-    const silenceUntil = new Date(sentAt.getTime() + PAUSE_MS).toISOString();
-    const pause: ConversationPause = {
-      conversationId: conversation.id,
-      reason: "intervencao_alana",
-      silenceUntil,
-      lastAlanaMessageId: inbound.externalId,
-    };
-    const idx = state.pauses.findIndex((p) => p.conversationId === conversation.id);
-    if (idx >= 0) state.pauses[idx] = pause;
-    else state.pauses.push(pause);
+    const pauseRequested = looksLikeBotPauseRequest(inbound.text ?? "");
+    let pause: ConversationPause | undefined;
+    if (pauseRequested) {
+      pause = {
+        conversationId: conversation.id,
+        reason: "intervencao_alana",
+        silenceUntil: new Date(sentAt.getTime() + PAUSE_MS).toISOString(),
+        lastAlanaMessageId: inbound.externalId,
+      };
+      const idx = state.pauses.findIndex((p) => p.conversationId === conversation.id);
+      if (idx >= 0) state.pauses[idx] = pause;
+      else state.pauses.push(pause);
+    }
     const nlu = interpretLocal(state, inbound, {
       authorRole: "alana",
       isAdmin: true,
@@ -426,7 +459,7 @@ export function processMessage(
     }
     const replies = nlu ? applyNluResult(state, conversation, inbound, nlu, true) : [];
     return {
-      decision: replies.length ? "assisted" : "pause_updated",
+      decision: replies.length ? "assisted" : pauseRequested ? "pause_updated" : "ignored",
       duplicate: false,
       message: stored,
       replies: snapshotReplies(replies),
@@ -515,7 +548,17 @@ export function processMessage(
     findDriverByAuthor(state, inbound.authorId) ??
     state.drivers.find((d) => d.id === conversation.driverId);
   const sentAt = new Date(inbound.sentAt);
-  const pending = findOpenIncomplete(state, conversation);
+  const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
+  const pending = extracted
+    ? findCompatiblePending(
+        state,
+        conversation,
+        extracted.kind,
+        typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
+      )
+    : isApproximateDatePhrase(text)
+      ? (findCompatiblePending(state, conversation, "despesa") ?? findOpenIncomplete(state, conversation))
+      : findOpenIncomplete(state, conversation);
   const allowReply = canSendProactive(state, conversation.id, conversation.driverId, now);
 
   if (clock.nluFirst) {
@@ -535,16 +578,22 @@ export function processMessage(
       stored,
     });
     if (applied) return applied;
+    clock.nluLog?.("nlu_rejected", {
+      rejectReason: "no_applicable_action",
+      provider: clock.nlu?.name ?? "llm",
+      intent: nlu?.intent ?? "unknown",
+      action: nlu?.action ?? "none",
+    });
   }
 
-  if (
-    pending?.kind === "despesa" &&
-    /\boutro\s+dia\b/i.test(text) &&
-    pending.missing.includes("amountBrl")
-  ) {
-    const name = pending.despesa?.description?.trim() ? ` com ${pending.despesa.description.trim()}` : "";
+  if (pending?.kind === "despesa" && isApproximateDatePhrase(text)) {
+    pending.despesa ??= {};
+    pending.despesa.note = `data aproximada: ${text.trim().slice(0, 80)}`;
+    if (!pending.sourceMessageIds.includes(inbound.externalId)) {
+      pending.sourceMessageIds.push(inbound.externalId);
+    }
     const replies: BotReply[] = allowReply
-      ? [pushReply(state, conversation.id, `Certo. Qual foi o valor desse gasto${name}?`)]
+      ? [pushReply(state, conversation.id, approximateDateFollowup(pending.despesa.description))]
       : [];
     return {
       decision: "record_incomplete",
@@ -554,8 +603,6 @@ export function processMessage(
       replies: snapshotReplies(replies),
     };
   }
-
-  const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
 
   if (pending && !isNewOperationalEvent(extracted, pending.kind, pendingFields(pending))) {
     const incoming = extractPendingFill(
@@ -573,17 +620,7 @@ export function processMessage(
       clearDeferral(state, conversation.id);
       const replies: BotReply[] = [];
       if (canSendProactive(state, conversation.id, conversation.driverId, now)) {
-        if (pending.status === "completo") {
-          replies.push(pushReply(state, conversation.id, confirmationForRecord(pending.kind, pending)));
-        } else {
-          replies.push(
-            pushReply(
-              state,
-              conversation.id,
-              questionForMissing(pending.kind, pending.missing, expenseHint(pending)),
-            ),
-          );
-        }
+        replies.push(pushReply(state, conversation.id, engineRecordReply(pending)));
       }
       return {
         decision: pending.status === "completo" ? "record_created" : "record_incomplete",
@@ -635,6 +672,40 @@ export function processMessage(
     };
   }
 
+  const compatible = findCompatiblePending(
+    state,
+    conversation,
+    extracted.kind,
+    typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
+  );
+  if (
+    compatible &&
+    compatible.kind === extracted.kind &&
+    !isNewOperationalEvent(extracted, compatible.kind, pendingFields(compatible))
+  ) {
+    const incoming = extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {};
+    applyComplement(compatible, incoming);
+    if (!compatible.sourceMessageIds.includes(inbound.externalId)) {
+      compatible.sourceMessageIds.push(inbound.externalId);
+    }
+    compatible.missing = missingFields(compatible);
+    compatible.status = compatible.missing.length === 0 ? "completo" : "incompleto";
+    clearDeferral(state, conversation.id);
+    const replies: BotReply[] = [];
+    if (compatible.status === "incompleto" && canSendProactive(state, conversation.id, conversation.driverId, now)) {
+      replies.push(pushReply(state, conversation.id, engineRecordReply(compatible)));
+    } else if (compatible.status === "completo" && canSendProactive(state, conversation.id, conversation.driverId, now)) {
+      replies.push(pushReply(state, conversation.id, engineRecordReply(compatible)));
+    }
+    return {
+      decision: compatible.status === "completo" ? "record_created" : "record_incomplete",
+      duplicate: false,
+      message: stored,
+      record: compatible,
+      replies: snapshotReplies(replies),
+    };
+  }
+
   const record: OperationalRecord = {
     id: `reg-${inbound.externalId}`,
     kind: extracted.kind,
@@ -656,13 +727,7 @@ export function processMessage(
     record.status === "incompleto" &&
     canSendProactive(state, conversation.id, conversation.driverId, now)
   ) {
-    replies.push(
-      pushReply(
-        state,
-        conversation.id,
-        questionForMissing(record.kind, record.missing, expenseHint(record)),
-      ),
-    );
+    replies.push(pushReply(state, conversation.id, engineRecordReply(record)));
   }
 
   return {

@@ -58,6 +58,7 @@ export async function handleInboundPayload(input: {
     nluEnabled: input.clock?.nluEnabled,
     nlu,
     nluFirst: llmFirst,
+    nluLog: input.clock?.nluLog ?? ((event, fields) => log(event, fields)),
   };
   const processed = llmFirst
     ? await processMessageAsync(state, inbound, clock)
@@ -70,7 +71,7 @@ export async function handleInboundPayload(input: {
   log("engine_decision", {
     decision: processed.decision,
     duplicate: processed.duplicate,
-    conversationId: inbound.conversationId,
+    conversationId: inbound.conversationId.replace(/\d{10,}(?=@)/, "…"),
     replyCount: processed.replies.length,
   });
 

@@ -47,7 +47,7 @@ export function parseCentralCommand(text: string): ParsedCommand {
 export function questionForMissing(
   kind: string,
   missing: string[],
-  hint?: { description?: string },
+  hint?: { description?: string; amountBrl?: number; payment?: string },
 ): string {
   if (kind === "despesa") {
     const name = hint?.description?.trim() ? ` com ${hint.description.trim()}` : "";
@@ -62,7 +62,7 @@ export function questionForMissing(
     if (missing.includes("description") && needPay) return "O que foi? Foi pago ou assinada?";
     if (missing.includes("description")) return "O que foi essa despesa?";
     if (needPay) return "Foi pago ou ficou assinada?";
-    if (needDate) return "Foi hoje ou outro dia?";
+    if (needDate) return expenseDateFollowup(hint?.description, hint?.amountBrl, hint?.payment);
   }
 
   const same = (...keys: string[]) =>
@@ -117,4 +117,22 @@ export function confirmationForRecord(kind: string, record: { despesa?: { amount
   else if (d.payment) bits.push(`no ${d.payment}`);
   if (!bits.length) return confirmationForKind("despesa");
   return `Fechado, registrei essa despesa ${bits.join(" ")}.`;
+}
+
+export function expenseDateFollowup(
+  description?: string,
+  amountBrl?: number,
+  payment?: string,
+): string {
+  const name = description?.trim() ? ` com ${description.trim()}` : "";
+  const pay =
+    payment === "pix" ? " no pix" : payment === "assinada" ? " como assinada" : payment === "pago" ? " pago" : "";
+  if (amountBrl !== undefined) {
+    return `Registrei R$ ${amountBrl}${name}${pay}. Qual foi o dia exato desse gasto?`;
+  }
+  return `Certo. Qual foi o dia exato desse gasto${name}? Pode ser algo como 15/09.`;
+}
+
+export function approximateDateFollowup(_description?: string): string {
+  return "Certo. Você lembra o dia exato? Pode ser algo como 15/09.";
 }

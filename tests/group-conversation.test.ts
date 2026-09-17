@@ -58,7 +58,7 @@ describe("grupo autorizado com Alana + motorista + bot", () => {
       }),
       { now: () => T0 },
     );
-    assert.equal(alana.decision, "pause_updated");
+    assert.equal(alana.decision, "ignored");
     assert.equal(alana.message?.authorRole, "alana");
     assert.equal(alana.message?.participantId, ALANA);
     assert.equal(state.records.length, 0);
@@ -89,7 +89,7 @@ describe("grupo autorizado com Alana + motorista + bot", () => {
         chatId: GROUP,
         author: ALANA,
         isGroup: true,
-        body: "já vi o comprovante",
+        body: "deixa comigo",
         type: "chat",
         timestamp: T0.toISOString(),
       }),
@@ -205,7 +205,7 @@ describe("grupo autorizado com Alana + motorista + bot", () => {
         chatId: GROUP,
         author: ALANA,
         isGroup: true,
-        body: "já vi",
+        body: "deixa comigo",
         type: "chat",
         timestamp: T0.toISOString(),
       }),

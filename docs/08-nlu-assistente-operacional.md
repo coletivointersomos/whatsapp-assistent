@@ -48,8 +48,12 @@ LLM_NLU_API_KEY=
 LLM_NLU_BASE_URL=
 ```
 
-Só `ENABLED=true` **e** `PROVIDER=llm` **e** key+base URL chamam `/chat/completions` **antes** do parser. Log: `nlu_first`. JSON inválido → fallback determinístico.
+Só `ENABLED=true` **e** `PROVIDER=llm` **e** key+base URL chamam `/chat/completions` **antes** do parser. Logs: `nlu_first` e `nlu_result` (intent/action/confidence/hasReply/rejectReason; sem key, HMAC ou JID completo). JSON inválido → fallback determinístico. Se a action for válida, a `reply` do LLM prevalece sobre o template.
 
-## 7. Guard rails
+## 7. Pausa
+
+Pausa rígida de 15 min **só** se a Alana pedir explicitamente (`deixa comigo`, `pausa o bot`, `não responde agora`, `vou falar com ele`, `estou falando com ele`). Pergunta operacional da admin **não** congela o bot.
+
+## 8. Guard rails
 
 LLM interpreta. Engine executa. Ação sensível pede confirmação. Sheets real off. Broadcast real off.

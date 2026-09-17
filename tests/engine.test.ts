@@ -75,7 +75,7 @@ describe("engine", () => {
         externalId: "alana-1",
         authorId: "alana",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     assert.equal(pause.decision, "pause_updated");
@@ -227,7 +227,7 @@ describe("engine", () => {
         authorId: "alana",
         authorRole: "alana",
         sentAt: sentAt.toISOString(),
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
       processedAt,
     );
@@ -280,6 +280,27 @@ describe("engine", () => {
     assert.equal(state.suspensions[0].status, "aplicada");
   });
 
+  it("does not pause on a normal admin remark", () => {
+    const state = seedState();
+    const result = run(
+      state,
+      msg({
+        externalId: "alana-chat",
+        authorId: "alana",
+        authorRole: "alana",
+        text: "já vi aqui",
+      }),
+    );
+    assert.notEqual(result.decision, "pause_updated");
+    assert.equal(state.pauses.length, 0);
+    const during = run(
+      state,
+      msg({ externalId: "drv-free", text: "abasteci 150 litros, deu 980, assinada" }),
+      new Date(T0.getTime() + 2 * 60 * 1000),
+    );
+    assert.equal(during.replies.length, 1);
+  });
+
   it("does not pause from a spoofed authorRole when the JID is the driver", () => {
     const state = seedState();
     const result = run(
@@ -288,7 +309,7 @@ describe("engine", () => {
         externalId: "spoof-1",
         authorId: "motorista-joao",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     assert.equal(result.decision, "ignored");
@@ -303,7 +324,7 @@ describe("engine", () => {
         externalId: "alana-joao",
         authorId: "alana",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     const ana = run(
@@ -329,7 +350,7 @@ describe("engine", () => {
         externalId: "alana-1",
         authorId: "alana",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     const until = pause.pause?.silenceUntil;

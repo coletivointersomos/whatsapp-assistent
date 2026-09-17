@@ -40,6 +40,10 @@ describe("perguntas e confirmações curtas", () => {
       questionForMissing("despesa", ["amountBrl", "date", "payment"], { description: "eletricista" }),
       "Entendi o gasto com eletricista. Qual foi o valor e como foi pago?",
     );
+    assert.equal(
+      questionForMissing("despesa", ["date"], { description: "eletricista", amountBrl: 250, payment: "pix" }),
+      "Registrei R$ 250 com eletricista no pix. Qual foi o dia exato desse gasto?",
+    );
     assert.equal(questionForMissing("despesa", ["payment"]), "Foi pago ou ficou assinada?");
     assert.equal(
       questionForMissing("viagem", ["origin", "destination"]),

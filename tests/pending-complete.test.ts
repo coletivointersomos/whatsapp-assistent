@@ -83,7 +83,7 @@ describe("complemento de pendência por texto", () => {
         externalId: "alana-1",
         authorId: "alana",
         authorRole: "alana",
-        text: "já vi aqui",
+        text: "deixa comigo",
       }),
     );
     const duringPause = new Date(T0.getTime() + 2 * 60 * 1000);
