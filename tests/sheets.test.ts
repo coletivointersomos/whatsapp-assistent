@@ -39,6 +39,8 @@ describe("sheets mapper", () => {
     assert.ok(rows.length >= 4);
 
     const fuel = rows.find((r) => r.tipo === "abastecimento" && r.pagamento === "pago");
+    assert.ok(fuel?.record_id);
+    assert.equal(SHEET_COLUMNS[0], "record_id");
     assert.equal(fuel?.motorista, "João");
     assert.equal(fuel?.litros, "200");
     assert.equal(fuel?.valor, "1200");

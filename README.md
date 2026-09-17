@@ -1,6 +1,6 @@
 # Assistente WhatsApp — Alana Transportes
 
-Documentação do produto em `docs/`. Fundação em `src/`. Integração Hermes/OpenWA: `docs/05-integracao-hermes-openwa.md`. Planilha local (sem Google): `docs/06-planilha-preview.md`.
+Documentação do produto em `docs/`. Fundação em `src/`. Integração Hermes/OpenWA: `docs/05-integracao-hermes-openwa.md`. Planilha local: `docs/06-planilha-preview.md`. Sync dry-run (sem Google): `docs/07-planilha-google.md`. NLU operacional: `docs/08-nlu-assistente-operacional.md`.
 
 ## Demonstração
 
@@ -12,10 +12,11 @@ npm run simulate
 npm run simulate:demo
 npm run schedule:preview
 npm run sheets:preview
+npm run sheets:sync
 npm run records:preview
 ```
 
-`schedule:preview` usa um estado demo previsível. `sheets:preview` gera TSV das linhas de planilha (mapper em `src/sheets/`; ver `docs/06-planilha-preview.md`). Se existir `data/store.json`, lê esse arquivo (não apaga); `--demo` força o demo. Sem Google nesta etapa.
+`schedule:preview` usa um estado demo previsível. `sheets:preview` gera TSV (`docs/06-planilha-preview.md`). `sheets:sync` mostra o plano insert/update em dry-run (`docs/07-planilha-google.md`); `--apply` está bloqueado. Sem Google nesta etapa. Se existir `data/store.json`, os comandos de planilha leem (não apagam); `--demo` força o demo.
 
 `records:preview` só **lê** `data/store.json` (ou `STORE_PATH` / `--file`). Não apaga nada. Por padrão filtra o `TEST_GROUP_JID` (grupo exclusivo) e as últimas 48h. Use `--all-conversations` e/ou `--all-time` para ver o resto do store (testes antigos misturados).
 

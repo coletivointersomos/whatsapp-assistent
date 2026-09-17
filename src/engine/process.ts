@@ -25,15 +25,52 @@ import type {
 import { confirmationForKind, parseCentralCommand, questionForMissing } from "../extraction/command.ts";
 import { matchAdminAssist, matchCentralAssist, matchDriverAssist } from "../extraction/assist.ts";
 import {
-  extractComplement,
   extractFromText,
+  extractPendingFill,
   isDeferral,
   isNewOperationalEvent,
   looksLikeAdminCommand,
 } from "../extraction/extract.ts";
+import { buildNluContext } from "../nlu/context.ts";
+import { gateSensitiveIntent } from "../nlu/gate.ts";
+import { matchAdminOperational } from "../nlu/rulesProvider.ts";
+import type { NluAuthorRole, NluProvider, NluResult } from "../nlu/types.ts";
 import { planPendingResume } from "./resume.ts";
 
-export type Clock = { now: () => Date };
+export type Clock = { now: () => Date; nluEnabled?: boolean; nlu?: NluProvider };
+
+function interpretSync(nlu: NluProvider | undefined, ctx: Parameters<NluProvider["interpret"]>[0]): NluResult | undefined {
+  if (!nlu) return undefined;
+  const out = nlu.interpret(ctx);
+  if (out && typeof (out as Promise<NluResult>).then === "function") return undefined;
+  return out as NluResult;
+}
+
+function nluReply(
+  state: AppState,
+  inbound: InboundMessage,
+  opts: {
+    authorRole: NluAuthorRole;
+    isAdmin: boolean;
+    now: Date;
+    driverId?: string;
+    pending?: OperationalRecord;
+    nluEnabled?: boolean;
+    nlu?: NluProvider;
+  },
+): NluResult | undefined {
+  if (!opts.nluEnabled || !opts.nlu) return undefined;
+  const ctx = buildNluContext(state, inbound, {
+    authorRole: opts.authorRole,
+    isAdmin: opts.isAdmin,
+    now: opts.now,
+    driverId: opts.driverId,
+    pending: opts.pending,
+  });
+  const raw = interpretSync(opts.nlu, ctx);
+  if (!raw) return undefined;
+  return gateSensitiveIntent(raw, opts.isAdmin);
+}
 
 function missingFields(record: OperationalRecord): string[] {
   const req =
@@ -227,8 +264,6 @@ export function processMessage(
   }
 
   if (authorRole === "alana") {
-    const existingPause = conversationPause(state, conversation.id);
-    const alreadyPaused = Boolean(existingPause && isPauseActive(existingPause.silenceUntil, now));
     const sentAt = new Date(inbound.sentAt);
     const silenceUntil = new Date(sentAt.getTime() + PAUSE_MS).toISOString();
     const pause: ConversationPause = {
@@ -240,7 +275,17 @@ export function processMessage(
     const idx = state.pauses.findIndex((p) => p.conversationId === conversation.id);
     if (idx >= 0) state.pauses[idx] = pause;
     else state.pauses.push(pause);
-    const assist = !alreadyPaused ? matchAdminAssist(inbound.text ?? "") : undefined;
+    const operational = matchAdminOperational(inbound.text ?? "", state, now);
+    const nlu = nluReply(state, inbound, {
+      authorRole: "alana",
+      isAdmin: true,
+      now,
+      driverId: conversation.driverId,
+      nluEnabled: clock.nluEnabled,
+      nlu: clock.nlu,
+    });
+    const assist =
+      matchAdminAssist(inbound.text ?? "") ?? operational?.reply ?? nlu?.reply;
     const replies: BotReply[] = assist ? [pushReply(state, conversation.id, assist)] : [];
     return {
       decision: assist ? "assisted" : "pause_updated",
@@ -336,13 +381,13 @@ export function processMessage(
   const pending = findOpenIncomplete(state, conversation);
 
   if (pending && !isNewOperationalEvent(extracted, pending.kind, pendingFields(pending))) {
-    const complement = extractComplement(pending.kind, text, sentAt, driver?.vehicleHint);
-    const incoming =
-      pending.kind === "abastecimento"
-        ? complement.abastecimento
-        : pending.kind === "despesa"
-          ? complement.despesa
-          : complement.viagem;
+    const incoming = extractPendingFill(
+      pending.kind,
+      pending.missing,
+      text,
+      sentAt,
+      driver?.vehicleHint,
+    );
     const filled = applyComplement(pending, incoming);
     if (filled.length > 0) {
       pending.sourceMessageIds.push(inbound.externalId);
@@ -377,6 +422,24 @@ export function processMessage(
         duplicate: false,
         message: stored,
         replies: snapshotReplies([pushReply(state, conversation.id, assist)]),
+      };
+    }
+    const nlu = nluReply(state, inbound, {
+      authorRole: "motorista",
+      isAdmin: false,
+      now,
+      driverId: conversation.driverId,
+      pending,
+      nluEnabled: clock.nluEnabled,
+      nlu: clock.nlu,
+    });
+    if (nlu?.reply && canSendProactive(state, conversation.id, conversation.driverId, now)) {
+      return {
+        decision: "assisted",
+        duplicate: false,
+        message: stored,
+        record: pending,
+        replies: snapshotReplies([pushReply(state, conversation.id, nlu.reply)]),
       };
     }
     const replies = considerResume(state, conversation.id, { now: () => now });
@@ -449,7 +512,8 @@ function handleCentral(state: AppState, stored: StoredMessage, now: Date): Proce
   const parsed = parseCentralCommand(stored.text ?? "");
 
   if (parsed.type === "none") {
-    const assist = matchCentralAssist(stored.text ?? "");
+    const operational = matchAdminOperational(stored.text ?? "", state, now);
+    const assist = matchCentralAssist(stored.text ?? "") ?? operational?.reply;
     if (assist) {
       return {
         decision: "assisted",

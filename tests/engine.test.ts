@@ -210,8 +210,8 @@ describe("engine", () => {
         text: "oi",
       }),
     );
-    assert.equal(result.decision, "ignored");
-    assert.equal(result.replies.length, 0);
+    assert.equal(result.decision, "assisted");
+    assert.ok(result.replies[0]?.text);
     assert.equal(state.commands.length, 0);
     assert.equal(state.suspensions.length, 0);
   });

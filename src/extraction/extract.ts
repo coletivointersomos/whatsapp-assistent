@@ -13,9 +13,10 @@ function parseNumber(raw: string): number {
 }
 
 function paymentToken(text: string): string | undefined {
-  const match = text.match(/\b(assinada|pago|paga)\b/i);
+  const match = text.match(/\b(assinada|pago|paga|pix)\b/i);
   if (!match) return undefined;
-  return match[1].toLowerCase();
+  const token = match[1].toLowerCase();
+  return token === "paga" ? "pago" : token;
 }
 
 function resolveDate(text: string, sentAt: Date): string | undefined {
@@ -32,6 +33,7 @@ function resolveDate(text: string, sentAt: Date): string | undefined {
 
 function detectKind(text: string): RecordKind | undefined {
   if (/\b(abastec\w*)\b/i.test(text)) return "abastecimento";
+  if (/\b(eletricista|gasto extra)\b/i.test(text)) return "despesa";
   if (/\b(gastei|despesa|gasto)\b/i.test(text)) return "despesa";
   if (/\bviagem\b/i.test(text)) return "viagem";
   if (/\bfrete\b/i.test(text) && /\bde\s+.+\s+para\s+/i.test(text)) return "viagem";
@@ -75,6 +77,20 @@ function extractPlace(text: string): string | undefined {
   const rest = posto[1].trim();
   if (!rest) return undefined;
   return /^posto\b/i.test(rest) ? rest : `posto ${rest}`;
+}
+
+const PLACE_BLOCKLIST =
+  /^(hoje|ontem|pago|paga|assinada|pix|foi|isso|sim|nao|não|ok|blz|vlw|oi|alo|alô|bom dia)$/i;
+
+/** Complemento curto de posto, sem exigir a palavra "posto" (`sao joao`). */
+export function inferPlaceName(text: string): string | undefined {
+  const known = extractPlace(text);
+  if (known) return known;
+  const n = text.trim().replace(/[?!.,;:]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!n || PLACE_BLOCKLIST.test(n)) return undefined;
+  if (/\b(abastec|gastei|despesa|frete|viagem|litros?|deu)\b/i.test(n)) return undefined;
+  if (n.split(/\s+/).length > 5) return undefined;
+  return /^posto\b/i.test(n) ? n : `posto ${n}`;
 }
 
 function extractDescription(text: string): string | undefined {
@@ -215,6 +231,28 @@ export function extractComplement(
     return { kind, despesa: extractDespesa(text, sentAt, vehicleHint) };
   }
   return { kind, viagem: extractViagem(text, sentAt, vehicleHint) };
+}
+
+/** Preenche só campos ainda faltantes, inclusive posto sem a palavra "posto". */
+export function extractPendingFill(
+  kind: RecordKind,
+  missing: string[],
+  text: string,
+  sentAt: Date,
+  vehicleHint?: string,
+): Record<string, string | number> {
+  const extracted = extractComplement(kind, text, sentAt, vehicleHint);
+  const bucket = extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {};
+  const fill: Record<string, string | number> = {};
+  for (const key of missing) {
+    const value = bucket[key];
+    if (value !== undefined && value !== "") fill[key] = value;
+  }
+  if (missing.includes("place") && fill.place === undefined) {
+    const place = inferPlaceName(text);
+    if (place) fill.place = place;
+  }
+  return fill;
 }
 
 const NEW_EVENT_CORE: Record<RecordKind, string[]> = {

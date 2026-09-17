@@ -1,11 +1,9 @@
-import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
-import { loadState } from "../persistence/store.ts";
 import { formatSheetTable } from "../sheets/export.ts";
 import { recordsToRows } from "../sheets/mapper.ts";
-import { sheetsDemoState } from "../sheets/demo.ts";
+import { loadSheetsLocalState } from "../sheets/localStore.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const defaultStore = join(root, "data/store.json");
@@ -23,10 +21,7 @@ function flagValue(args: string[], name: string): string | undefined {
 }
 
 export function loadSheetsPreviewState(forceDemo: boolean, file = defaultStore) {
-  if (!forceDemo && existsSync(file)) {
-    return { state: loadState(file), source: file };
-  }
-  return { state: sheetsDemoState(), source: "demo" };
+  return loadSheetsLocalState(forceDemo, file);
 }
 
 if (isCliEntry()) {

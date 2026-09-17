@@ -131,9 +131,9 @@ describe("camada leve de assistente", () => {
       }),
       duringPause,
     );
-    assert.equal(admin.decision, "pause_updated");
-    assert.equal(admin.replies.length, 0);
-    assert.notEqual(admin.replies[0]?.text, ADMIN_HELP);
+    assert.equal(admin.decision, "assisted");
+    assert.equal(admin.replies[0]?.text, ADMIN_HELP);
+    assert.ok(admin.pause);
   });
 
   it("bot/fromMe é ignorado", () => {

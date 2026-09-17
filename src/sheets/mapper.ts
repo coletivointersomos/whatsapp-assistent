@@ -2,6 +2,7 @@ import { maskJid } from "../inspect/mask.ts";
 import type { AppState, OperationalRecord, StoredMessage } from "../domain/types.ts";
 
 export type SheetRow = {
+  record_id: string;
   data_registro: string;
   tipo: string;
   motorista: string;
@@ -26,6 +27,7 @@ export type SheetRow = {
 };
 
 export const SHEET_COLUMNS: (keyof SheetRow)[] = [
+  "record_id",
   "data_registro",
   "tipo",
   "motorista",
@@ -95,6 +97,7 @@ export function origemWhatsapp(record: OperationalRecord): string {
 function emptyRow(state: AppState, record: OperationalRecord): SheetRow {
   const bounds = sourceBounds(state, record);
   return {
+    record_id: cell(record.id),
     data_registro: "",
     tipo: record.kind,
     motorista: driverName(state, record.driverId),
@@ -156,4 +159,10 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
 
 export function recordsToRows(state: AppState): SheetRow[] {
   return state.records.map((r) => recordToRow(state, r));
+}
+
+/** Sem `record_id` o registro não entra no sync. */
+export function isSyncEligible(row: Pick<SheetRow, "record_id"> | OperationalRecord): boolean {
+  const id = "record_id" in row ? row.record_id : row.id;
+  return Boolean(id?.trim());
 }

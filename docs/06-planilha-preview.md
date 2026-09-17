@@ -16,7 +16,9 @@
 
 Colunas:
 
-`data_registro`, `tipo`, `motorista`, `veiculo`, `status`, `origem_whatsapp`, `criado_em`, `atualizado_em`, `observacoes`, `litros`, `valor`, `posto_local`, `pagamento`, `valor_despesa`, `descricao_despesa`, `pagamento_despesa`, `origem`, `destino`, `material`, `quantidade`, `unidade`.
+`record_id`, `data_registro`, `tipo`, `motorista`, `veiculo`, `status`, `origem_whatsapp`, `criado_em`, `atualizado_em`, `observacoes`, `litros`, `valor`, `posto_local`, `pagamento`, `valor_despesa`, `descricao_despesa`, `pagamento_despesa`, `origem`, `destino`, `material`, `quantidade`, `unidade`.
+
+`record_id` vem de `OperationalRecord.id` (chave de sync; ver `docs/07-planilha-google.md`).
 
 Abastecimento preenche litros/valor/posto/pagamento. Despesa preenche `valor_despesa` / `descricao_despesa` / `pagamento_despesa`. Viagem preenche origem/destino/material/quantidade/unidade. `criado_em` / `atualizado_em` vêm da mensagem-fonte mais antiga e da mais recente; sem fonte, ficam vazios. `origem_whatsapp` junta ids de mensagem (JID, se aparecer, é mascarado).
 

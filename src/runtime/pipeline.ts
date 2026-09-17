@@ -4,6 +4,9 @@ import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import type { AppState } from "../domain/types.ts";
 import { processMessage, type Clock } from "../engine/process.ts";
+import { buildNluContext } from "../nlu/context.ts";
+import { gateSensitiveIntent } from "../nlu/gate.ts";
+import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -47,8 +50,42 @@ export async function handleInboundPayload(input: {
   }
 
   const inbound = normalized.inbound;
-  const clock = input.clock ?? { now: () => new Date(inbound.sentAt) };
+  const nluConfig = loadNluConfig(process.env);
+  const nlu = createNluProvider(nluConfig);
+  const clock: Clock = {
+    now: input.clock?.now ?? (() => new Date(inbound.sentAt)),
+    nluEnabled: nluConfig.enabled && nluConfig.provider !== "llm",
+    nlu: nluConfig.provider === "llm" ? undefined : nlu,
+  };
   const processed = processMessage(state, inbound, clock);
+
+  if (
+    canCallRemoteLlm(nluConfig) &&
+    nlu &&
+    processed.replies.length === 0 &&
+    processed.message &&
+    (processed.decision === "ignored" || processed.decision === "pause_updated")
+  ) {
+    const isAdmin = processed.message.authorRole === "alana";
+    const conversation = state.conversations.find(
+      (c) => c.id === inbound.conversationId || c.externalId === inbound.conversationId,
+    );
+    const ctx = buildNluContext(state, inbound, {
+      authorRole: processed.message.authorRole,
+      isAdmin,
+      now: clock.now(),
+      driverId: conversation?.driverId,
+    });
+    const interpreted = gateSensitiveIntent(await nlu.interpret(ctx), isAdmin);
+    if (interpreted.reply) {
+      const reply = { conversationId: inbound.conversationId, text: interpreted.reply };
+      state.botReplies.push(reply);
+      processed.replies.push(reply);
+      processed.decision = "assisted";
+    }
+    log("nlu_followup", { intent: interpreted.intent, provider: nlu.name });
+  }
+
   log("engine_decision", {
     decision: processed.decision,
     duplicate: processed.duplicate,
