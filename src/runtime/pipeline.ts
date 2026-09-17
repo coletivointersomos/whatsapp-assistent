@@ -2,6 +2,7 @@ import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
 import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
+import { createAssistantProvider } from "../assistant/provider.ts";
 import type { AppState } from "../domain/types.ts";
 import { processMessage, processMessageAsync, type Clock } from "../engine/process.ts";
 import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
@@ -63,21 +64,42 @@ export async function handleInboundPayload(input: {
           bodyPreview: info.bodyPreview,
         }),
     });
-  const llmFirst =
+  const llmReady =
     input.clock?.nluFirst === true ||
     (input.clock?.nluFirst !== false && canCallRemoteLlm(nluConfig) && input.clock?.nluEnabled !== false);
+  const assistant =
+    input.clock?.assistant ??
+    (canCallRemoteLlm(nluConfig)
+      ? createAssistantProvider(nluConfig, fetch, {
+          onHttp: (info) =>
+            log("nlu_http", {
+              status: info.status,
+              ok: info.ok,
+              statusText: info.statusText,
+              host: info.host,
+              path: info.path,
+              usedResponseFormat: info.usedResponseFormat,
+              bodyPreview: info.bodyPreview,
+            }),
+        })
+      : undefined);
   const clock: Clock = {
     now: input.clock?.now ?? (() => new Date(inbound.sentAt)),
     nluEnabled: input.clock?.nluEnabled,
     nlu,
-    nluFirst: llmFirst,
+    nluFirst: llmReady,
+    assistant,
+    assistantFirst: input.clock?.assistantFirst ?? llmReady,
     nluLog: input.clock?.nluLog ?? ((event, fields) => log(event, fields)),
   };
-  const processed = llmFirst
-    ? await processMessageAsync(state, inbound, clock)
-    : processMessage(state, inbound, clock);
+  const processed =
+    clock.assistantFirst || llmReady
+      ? await processMessageAsync(state, inbound, clock)
+      : processMessage(state, inbound, clock);
 
-  if (llmFirst) {
+  if (clock.assistantFirst) {
+    log("assistant_first", { provider: assistant?.name ?? "none", decision: processed.decision });
+  } else if (llmReady) {
     log("nlu_first", { provider: nlu?.name ?? "none", decision: processed.decision });
   }
 

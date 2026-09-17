@@ -42,12 +42,16 @@ import { safePlanLogFields } from "../nlu/plan.ts";
 import { isUsableLlmResult, unknownNlu, type NluAuthorRole, type NluProvider, type NluResult } from "../nlu/types.ts";
 import { applyLlmInterpretation } from "./nluExecute.ts";
 import { planPendingResume } from "./resume.ts";
+import type { AssistantProvider } from "../assistant/types.ts";
+import { runAssistant } from "../assistant/run.ts";
 
 export type Clock = {
   now: () => Date;
   nluEnabled?: boolean;
   nlu?: NluProvider;
   nluFirst?: boolean;
+  assistant?: AssistantProvider;
+  assistantFirst?: boolean;
   nluLog?: (event: string, fields: Record<string, unknown>) => void;
 };
 
@@ -139,6 +143,10 @@ export async function processMessageAsync(
   inboundRaw: InboundMessage,
   clock: Clock,
 ): Promise<ProcessResult> {
+  if (clock.assistant && clock.assistantFirst !== false) {
+    const assisted = await runAssistant(state, inboundRaw, clock);
+    if (assisted) return assisted;
+  }
   if (!clock.nluFirst || !clock.nlu) {
     return processMessage(state, inboundRaw, { ...clock, nluFirst: false });
   }
