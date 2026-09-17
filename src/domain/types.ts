@@ -97,6 +97,8 @@ export type OperationalRecord = {
   abastecimento?: AbastecimentoFields;
   despesa?: DespesaFields;
   viagem?: ViagemFields;
+  /** Grupo de teste: ignorar no matching/contexto ativo, sem apagar o registro. */
+  archivedForDemo?: boolean;
 };
 
 export type ConversationPause = {
@@ -170,6 +172,11 @@ export type AppState = {
   suspensions: Suspension[];
   commands: CentralCommand[];
   botReplies: BotReply[];
+  /** Isola contexto do grupo de teste a partir deste instante. */
+  demoSession?: {
+    conversationId: string;
+    startedAt: string;
+  };
 };
 
 export type ProcessDecision =

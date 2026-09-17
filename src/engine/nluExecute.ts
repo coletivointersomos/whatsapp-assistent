@@ -17,8 +17,14 @@ import {
   expenseDateFollowup,
   questionForMissing,
 } from "../extraction/command.ts";
-import { extractComplement, extractFromText } from "../extraction/extract.ts";
-import { findCompatiblePending, isApproximateDatePhrase } from "../extraction/pending.ts";
+import { extractComplement, extractFromText, isNewOperationalEvent } from "../extraction/extract.ts";
+import {
+  findCompatiblePending,
+  isActivePending,
+  isApproximateDatePhrase,
+  looksLikeComplementOnly,
+  looksLikeNewOperationalEvent,
+} from "../extraction/pending.ts";
 import { lastTripForDriver } from "../nlu/status.ts";
 import type { NluRecordType, NluResult } from "../nlu/types.ts";
 
@@ -93,15 +99,53 @@ function findPending(
   state: AppState,
   conversation: { id: string; externalId: string; driverId?: string },
   nlu: NluResult,
-  kind?: NluRecordType,
-  description?: string,
+  kind: NluRecordType | undefined,
+  description: string | undefined,
+  text: string,
+  now: Date,
 ): OperationalRecord | undefined {
   const target = nlu.targetRecordId ?? nlu.target;
-  if (target) {
+  const explicit = Boolean(target && nlu.confidence >= 0.7);
+  if (explicit && target) {
     const hit = state.records.find((r) => r.id === target && r.status === "incompleto");
-    if (hit) return hit;
+    if (hit && isActivePending(state, hit, now) && (!kind || hit.kind === kind)) {
+      if (!looksLikeNewOperationalEvent(text) || hit.kind === kind) return hit;
+    }
   }
-  return findCompatiblePending(state, conversation, kind, description);
+  if (looksLikeNewOperationalEvent(text)) return undefined;
+  return findCompatiblePending(state, conversation, kind, description, { now, activeOnly: true });
+}
+
+function pendingBucket(record: OperationalRecord) {
+  return record.kind === "abastecimento"
+    ? record.abastecimento
+    : record.kind === "despesa"
+      ? record.despesa
+      : record.viagem;
+}
+
+function shouldUpdatePending(
+  open: OperationalRecord | undefined,
+  kind: NluRecordType,
+  nlu: NluResult,
+  text: string,
+  extractedKind: NluRecordType | undefined,
+): boolean {
+  if (!open || open.kind !== kind) return false;
+  if (looksLikeNewOperationalEvent(text) && extractedKind && extractedKind !== open.kind) return false;
+  if (looksLikeNewOperationalEvent(text) && extractedKind === open.kind) {
+    const extracted = extractFromText(text, new Date());
+    if (isNewOperationalEvent(extracted, open.kind, pendingBucket(open))) return false;
+  }
+  const targeted = (nlu.targetRecordId ?? nlu.target) === open.id && nlu.confidence >= 0.7;
+  if (targeted) return true;
+  if (looksLikeComplementOnly(text)) return true;
+  if (looksLikeNewOperationalEvent(text)) return false;
+  return (
+    nlu.intent === "complete_record" ||
+    nlu.action === "update_record" ||
+    nlu.action === "complete_record"
+  );
 }
 
 function pushReply(state: AppState, conversationId: string, text: string): BotReply {
@@ -110,8 +154,18 @@ function pushReply(state: AppState, conversationId: string, text: string): BotRe
   return reply;
 }
 
+function nluReplyFitsRecord(kind: NluRecordType, reply: string): boolean {
+  const n = reply
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  if (kind === "viagem" && /\b(eletricista|despesa)\b/.test(n) && !/\bviagem\b/.test(n)) return false;
+  if (kind === "despesa" && /\bviagem\b/.test(n) && !/\b(gasto|despesa|eletricista)\b/.test(n)) return false;
+  return true;
+}
+
 function pickRecordReply(record: OperationalRecord, nluReply?: string): string {
-  if (nluReply?.trim()) return nluReply.trim();
+  if (nluReply?.trim() && nluReplyFitsRecord(record.kind, nluReply)) return nluReply.trim();
   if (record.status === "completo") return confirmationForRecord(record.kind, record);
   if (record.kind === "despesa" && record.missing.includes("date") && !record.missing.includes("amountBrl")) {
     return expenseDateFollowup(record.despesa?.description, record.despesa?.amountBrl, record.despesa?.payment);
@@ -214,7 +268,7 @@ export function applyLlmInterpretation(input: {
   const kindGuess = resolveKind(nlu, text, sentAt) ?? (isApproximateDatePhrase(text) ? "despesa" : undefined);
   const descriptionGuess =
     asText(nlu.fields?.description) ?? asText(extractFromText(text, sentAt, vehicleHint)?.despesa?.description);
-  const pending = findPending(state, conversation, nlu, kindGuess, descriptionGuess);
+  const pending = findPending(state, conversation, nlu, kindGuess, descriptionGuess, text, sentAt);
 
   if (isDriver && pending?.kind === "despesa" && isApproximateDatePhrase(text)) {
     pending.missing = missingFields(pending);
@@ -243,21 +297,16 @@ export function applyLlmInterpretation(input: {
     (isDriver && extractedKind && (action === "reply" || action === "answer_question"))
   ) {
     if (!isDriver || !conversation.driverId) return undefined;
-    const kind = resolveKind(nlu, text, sentAt) ?? extractedKind;
+    const kind = looksLikeNewOperationalEvent(text)
+      ? (extractedKind ?? resolveKind(nlu, text, sentAt))
+      : (resolveKind(nlu, text, sentAt) ?? extractedKind);
     if (!kind) return undefined;
     const fields = trustedFields(kind, text, sentAt, nlu.fields, vehicleHint);
     const open =
       pending?.kind === kind
         ? pending
-        : findPending(state, conversation, nlu, kind, asText(fields.description) ?? descriptionGuess);
-    const updating =
-      open &&
-      (action === "update_record" ||
-        action === "complete_record" ||
-        nlu.intent === "complete_record" ||
-        open.kind === kind ||
-        action === "reply" ||
-        action === "answer_question");
+        : findPending(state, conversation, nlu, kind, asText(fields.description) ?? descriptionGuess, text, sentAt);
+    const updating = shouldUpdatePending(open, kind, nlu, text, extractedKind);
 
     if (updating && open) {
       if (open.missing.length === 0) open.missing = missingFields(open);

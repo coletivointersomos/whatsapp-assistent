@@ -57,6 +57,8 @@ Só `ENABLED=true` **e** `PROVIDER=llm` **e** key+base URL chamam `/chat/complet
 
 Pausa rígida de 15 min **só** se a Alana pedir explicitamente (`deixa comigo`, `pausa o bot`, `não responde agora`, `vou falar com ele`, `estou falando com ele`). Pergunta operacional da admin **não** congela o bot.
 
-## 8. Guard rails
+## 9. Pendência ativa
+
+Pendência com mais de 30 min não é alvo automático. Novo evento (`nova viagem`, `abasteci`, `teve gasto`, `gastei`) cria registro novo. Complementos curtos (`hoje`, `250 no pix`, `sao joao`) só preenchem pendência **ativa**. Sessão de demo: `npm run demo:reset-session` (backup + `archivedForDemo` no grupo `TEST_GROUP_JID`).
 
 LLM interpreta. Engine executa. Ação sensível pede confirmação. Sheets real off. Broadcast real off.

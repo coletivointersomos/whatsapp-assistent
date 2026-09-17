@@ -82,7 +82,10 @@ export type ConversationContext = {
   driverId?: string;
   vehicle?: string;
   lastBotQuestion?: string;
+  /** Pendências ativas (< 30 min). Não usar como alvo automático se vazia. */
   openPendings: string[];
+  /** Pendências velhas, só resumo — não são o foco da mensagem atual. */
+  openRecordsSummary?: string[];
   recentMessages: string[];
   recentRecords: string[];
   recentExpenses: string[];

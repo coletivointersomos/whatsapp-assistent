@@ -324,7 +324,7 @@ describe("LLM-first pipeline", () => {
     assert.doesNotMatch(blob, /openrouter/i);
   });
 
-  it("reuses a similar open electrician expense instead of duplicating", async () => {
+  it("does not reuse an electrician pending when the driver reports a new expense event", async () => {
     const state = seedState();
     state.records.push({
       id: "reg-zombie",
@@ -359,8 +359,9 @@ describe("LLM-first pipeline", () => {
       [],
     );
     const out = await runFirst(state, msg({ externalId: "el-new", text: "teve um gasto extra com eletricista" }), nlu);
-    assert.equal(out.record?.id, "reg-zombie");
-    assert.equal(state.records.filter((r) => r.kind === "despesa").length, 1);
+    assert.notEqual(out.record?.id, "reg-zombie");
+    assert.equal(out.record?.kind, "despesa");
+    assert.equal(state.records.filter((r) => r.kind === "despesa").length, 2);
   });
 
   it("asks exact date after pix even if the LLM fails", async () => {
@@ -375,5 +376,76 @@ describe("LLM-first pipeline", () => {
     const approx = await runFirst(state, msg({ externalId: "el-3", text: "outro dia" }), nlu);
     assert.equal(approx.decision, "record_incomplete");
     assert.equal(approx.replies[0]?.text, "Certo. Você lembra o dia exato? Pode ser algo como 15/09.");
+  });
+
+  it("opens a new trip even if an old electrician pending exists and the LLM points at it", async () => {
+    const old = new Date(T0.getTime() - 2 * 60 * 60 * 1000);
+    const state = seedState();
+    state.records.push({
+      id: "reg-old-el",
+      kind: "despesa",
+      driverId: "motorista-joao",
+      status: "incompleto",
+      sourceMessageIds: ["old-el"],
+      missing: ["amountBrl", "payment", "date"],
+      despesa: { description: "eletricista" },
+    });
+    state.messages.push({
+      externalId: "old-el",
+      conversationId: "conv-joao",
+      authorId: "motorista-joao",
+      authorRole: "motorista",
+      sentAt: old.toISOString(),
+      processedAt: old.toISOString(),
+      type: "texto",
+      text: "teve um gasto extra com eletricista",
+    });
+    const nlu = scriptedLlm((ctx) => {
+      assert.equal(ctx.openPendings.some((line) => /eletricista|despesa/.test(line)), false);
+      assert.ok((ctx.openRecordsSummary ?? []).some((line) => /stale despesa/.test(line)));
+      return result({
+        intent: "complete_record",
+        action: "update_record",
+        recordType: "despesa",
+        targetRecordId: "reg-old-el",
+        confidence: 0.95,
+        reasoning_summary: "wrong_target",
+        reply: "Qual foi o valor do eletricista?",
+      });
+    }, []);
+    const out = await runFirst(
+      state,
+      msg({ externalId: "trip-1", text: "nova viagem de curitiba para nova veneza" }),
+      nlu,
+    );
+    assert.equal(out.record?.kind, "viagem");
+    assert.match(out.record?.viagem?.origin ?? "", /curitiba/i);
+    assert.match(out.record?.viagem?.destination ?? "", /nova veneza/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /eletricista/i);
+    assert.match(out.replies[0]?.text ?? "", /carga|material|quantidade/i);
+    assert.equal(state.records.filter((r) => r.kind === "viagem").length, 1);
+    assert.equal(state.records.find((r) => r.id === "reg-old-el")?.status, "incompleto");
+  });
+
+  it("uses a valid LLM reply for a new trip instead of a rigid template", async () => {
+    const nlu = scriptedLlm(
+      () =>
+        result({
+          intent: "record_event",
+          action: "create_record",
+          recordType: "viagem",
+          confidence: 0.94,
+          reasoning_summary: "new_trip",
+          fields: { origin: "Curitiba", destination: "Nova Veneza" },
+          reply: "Anotei a viagem Curitiba → Nova Veneza. Qual foi a carga e a quantidade?",
+        }),
+      [],
+    );
+    const out = await runFirst(
+      seedState(),
+      msg({ externalId: "trip-llm", text: "nova viagem de curitiba para nova veneza" }),
+      nlu,
+    );
+    assert.equal(out.replies[0]?.text, "Anotei a viagem Curitiba → Nova Veneza. Qual foi a carga e a quantidade?");
   });
 });

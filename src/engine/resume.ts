@@ -1,4 +1,5 @@
 import { questionForMissing } from "../extraction/command.ts";
+import { isActivePending } from "../extraction/pending.ts";
 import { isPauseActive, isSuspensionCovering } from "../domain/rules.ts";
 import type { AppState, Conversation, OperationalRecord } from "../domain/types.ts";
 
@@ -55,6 +56,7 @@ export function wasResumeAsked(
 export function unaskedIncompleteRecords(
   state: AppState,
   conversation: Conversation,
+  now: Date,
 ): OperationalRecord[] {
   if (!conversation.driverId) return [];
   return [...state.records]
@@ -63,6 +65,7 @@ export function unaskedIncompleteRecords(
       (record) =>
         record.driverId === conversation.driverId &&
         record.status === "incompleto" &&
+        isActivePending(state, record, now) &&
         !wasResumeAsked(state, conversation.id, record),
     );
 }
@@ -86,10 +89,13 @@ export function planPendingResume(
     return { allowed: false, reason: "suspended" };
   }
 
-  const pending = unaskedIncompleteRecords(state, conversation)[0];
+  const pending = unaskedIncompleteRecords(state, conversation, now)[0];
   if (!pending) {
     const anyIncomplete = state.records.some(
-      (record) => record.driverId === conversation.driverId && record.status === "incompleto",
+      (record) =>
+        record.driverId === conversation.driverId &&
+        record.status === "incompleto" &&
+        isActivePending(state, record, now),
     );
     return { allowed: false, reason: anyIncomplete ? "already_asked" : "no_pending" };
   }

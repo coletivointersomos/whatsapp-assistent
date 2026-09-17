@@ -65,6 +65,17 @@ export function questionForMissing(
     if (needDate) return expenseDateFollowup(hint?.description, hint?.amountBrl, hint?.payment);
   }
 
+  if (kind === "viagem") {
+    const hasRoute = !missing.includes("origin") && !missing.includes("destination");
+    const needCargo = missing.includes("material");
+    const needQty = missing.includes("quantity") || missing.includes("unit");
+    if (hasRoute && needCargo && needQty) {
+      return "Qual foi a carga e a quantidade (toneladas ou m³)?";
+    }
+    if (hasRoute && needCargo) return "Qual foi o material?";
+    if (hasRoute && needQty) return "Quantas toneladas ou m³?";
+  }
+
   const same = (...keys: string[]) =>
     missing.length === keys.length && keys.every((key) => missing.includes(key));
 

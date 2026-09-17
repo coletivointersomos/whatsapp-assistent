@@ -32,7 +32,7 @@ import {
   isNewOperationalEvent,
   looksLikeAdminCommand,
 } from "../extraction/extract.ts";
-import { findCompatiblePending, isApproximateDatePhrase, looksLikeBotPauseRequest } from "../extraction/pending.ts";
+import { findCompatiblePending, isActivePending, isApproximateDatePhrase, looksLikeBotPauseRequest, looksLikeComplementOnly, looksLikeNewOperationalEvent } from "../extraction/pending.ts";
 import { nluRejectReason, safeNluLogFields } from "../nlu/audit.ts";
 import { buildNluContext } from "../nlu/context.ts";
 import { createFakeProvider } from "../nlu/fakeProvider.ts";
@@ -289,13 +289,15 @@ function recordInConversation(
 function findOpenIncomplete(
   state: AppState,
   conversation: { id: string; externalId: string; driverId?: string },
+  now?: Date,
 ): OperationalRecord | undefined {
   if (!conversation.driverId) return undefined;
   const matches = state.records.filter(
     (record) =>
       record.status === "incompleto" &&
       record.driverId === conversation.driverId &&
-      recordInConversation(state, record, conversation),
+      recordInConversation(state, record, conversation) &&
+      (!now || isActivePending(state, record, now)),
   );
   return matches[matches.length - 1];
 }
@@ -549,16 +551,21 @@ export function processMessage(
     state.drivers.find((d) => d.id === conversation.driverId);
   const sentAt = new Date(inbound.sentAt);
   const extracted = extractFromText(text, sentAt, driver?.vehicleHint);
-  const pending = extracted
-    ? findCompatiblePending(
-        state,
-        conversation,
-        extracted.kind,
-        typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
-      )
-    : isApproximateDatePhrase(text)
-      ? (findCompatiblePending(state, conversation, "despesa") ?? findOpenIncomplete(state, conversation))
-      : findOpenIncomplete(state, conversation);
+  const pendingOpts = { now: sentAt, activeOnly: true as const };
+  const pending = looksLikeNewOperationalEvent(text)
+    ? undefined
+    : extracted
+      ? findCompatiblePending(
+          state,
+          conversation,
+          extracted.kind,
+          typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
+          pendingOpts,
+        )
+      : looksLikeComplementOnly(text) || isApproximateDatePhrase(text)
+        ? (findCompatiblePending(state, conversation, undefined, undefined, pendingOpts) ??
+          findOpenIncomplete(state, conversation, sentAt))
+        : undefined;
   const allowReply = canSendProactive(state, conversation.id, conversation.driverId, now);
 
   if (clock.nluFirst) {
@@ -672,12 +679,15 @@ export function processMessage(
     };
   }
 
-  const compatible = findCompatiblePending(
-    state,
-    conversation,
-    extracted.kind,
-    typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
-  );
+  const compatible = looksLikeNewOperationalEvent(text)
+    ? undefined
+    : findCompatiblePending(
+        state,
+        conversation,
+        extracted.kind,
+        typeof extracted.despesa?.description === "string" ? extracted.despesa.description : undefined,
+        { now: sentAt, activeOnly: true },
+      );
   if (
     compatible &&
     compatible.kind === extracted.kind &&

@@ -1,11 +1,18 @@
 import type { AppState, OperationalRecord, OperationalStatusUpdate } from "../domain/types.ts";
+import { isArchivedForDemo, isBeforeDemoCutoff } from "../extraction/pending.ts";
 
 export function lastTripForDriver(
   state: AppState,
   driverId: string | undefined,
 ): OperationalRecord | undefined {
   if (!driverId) return undefined;
-  const trips = state.records.filter((r) => r.kind === "viagem" && r.driverId === driverId);
+  const trips = state.records.filter(
+    (r) =>
+      r.kind === "viagem" &&
+      r.driverId === driverId &&
+      !isArchivedForDemo(r) &&
+      !isBeforeDemoCutoff(state, r),
+  );
   return trips[trips.length - 1];
 }
 

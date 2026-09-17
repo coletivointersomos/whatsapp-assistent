@@ -291,7 +291,7 @@ describe("POST /resume pending question", () => {
     const dir = mkdtempSync(join(tmpdir(), "resume-http-"));
     const storePath = join(dir, "store.json");
     const app = createAppServer(runtime({ liveSend: false, storePath }));
-    withIncomplete(app.getState(), "http-inc");
+    withIncomplete(app.getState(), "http-inc", new Date());
     await new Promise<void>((resolve) => {
       app.server.listen(0, "127.0.0.1", () => resolve());
     });
