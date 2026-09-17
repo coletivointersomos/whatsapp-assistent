@@ -13,9 +13,17 @@ import { looksLikeBotPauseRequest } from "../extraction/pending.ts";
 import { looksLikeAdminCommand } from "../extraction/extract.ts";
 import { buildAssistantContext } from "./context.ts";
 import { executeAssistantActions, localSummaryFallback } from "./execute.ts";
+import {
+  ALREADY_RECORDED_REPLY,
+  MISSING_ACTION_RETRY,
+  activePendingForConversation,
+  buildMissingActionFallback,
+  isConfirmationAck,
+  looksOperationalUserText,
+} from "./fallback.ts";
 import { safeAssistantLogFields } from "./log.ts";
 import { composeFinalReplyFromOutcome } from "./reply.ts";
-import { isUsableAssistantResponse, type AssistantProvider } from "./types.ts";
+import { isUsableAssistantResponse, type AssistantProvider, type AssistantResponse } from "./types.ts";
 
 export type AssistantClock = {
   now: () => Date;
@@ -121,11 +129,32 @@ export async function runAssistant(
   }
 
   const vehicleHint = state.drivers.find((d) => d.id === conversation.driverId)?.vehicleHint;
+  const pendingBefore = activePendingForConversation(state, conversation, now);
+  const operationalWithoutAction =
+    isDriver &&
+    interpreted.actions.length === 0 &&
+    looksOperationalUserText(inbound.text ?? "", Boolean(pendingBefore));
+
+  let response: AssistantResponse = interpreted;
+  let executeInbound = inbound;
+  if (operationalWithoutAction) {
+    const fallback = buildMissingActionFallback({ state, inbound, conversation, now });
+    emit?.("assistant_missing_action_fallback", {
+      reason: "operational_without_action",
+      fallback_types: fallback.actions.map((action) => action.type),
+      ...safeAssistantLogFields(interpreted),
+    });
+    if (fallback.actions.length) {
+      response = { ...interpreted, actions: fallback.actions };
+      executeInbound = { ...inbound, text: fallback.workText || inbound.text };
+    }
+  }
+
   const outcome = executeAssistantActions({
     state,
-    inbound,
+    inbound: executeInbound,
     conversation,
-    response: interpreted,
+    response,
     isAdmin,
     isDriver,
     now,
@@ -135,18 +164,26 @@ export async function runAssistant(
   if (outcome.applied.length) emit?.("assistant_actions_applied", { applied: outcome.applied });
   if (outcome.blocked.length) emit?.("assistant_actions_blocked", { blocked: outcome.blocked });
 
-  const summaryAction = interpreted.actions.find((action) => action.type === "summary.query");
+  const summaryAction = response.actions.find((action) => action.type === "summary.query");
   const summary =
     summaryAction && !outcome.record && !outcome.statusCreated
       ? interpreted.message.trim() || localSummaryFallback(state, summaryAction.scope, now)
       : undefined;
-  const message = composeFinalReplyFromOutcome({
+
+  let message = composeFinalReplyFromOutcome({
     state,
     conversationDriverId: conversation.driverId,
     outcome,
     llmMessage: interpreted.message,
     summaryFallback: summary,
   });
+  if (operationalWithoutAction && !outcome.record && !outcome.statusCreated) {
+    message =
+      isConfirmationAck(inbound.text ?? "") &&
+      state.records.some((item) => item.driverId === conversation.driverId && item.status === "completo")
+        ? ALREADY_RECORDED_REPLY
+        : MISSING_ACTION_RETRY;
+  }
   const allowReply = isAdmin || canSendProactive(state, conversation.id, conversation.driverId, now);
   const replies = allowReply && message ? [pushReply(state, conversation.id, message)] : [];
 

@@ -256,6 +256,53 @@ describe("assistant product runtime", () => {
     assert.match(out.replies[0]?.text ?? "", /Cratos/);
   });
 
+  it("does not send a free LLM message when operational text has empty actions; falls back and persists", async () => {
+    const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const assistant = script(() => ({
+      message: "Você está iniciando uma nova viagem. Posso registrar?",
+      actions: [],
+      confidence: 0.9,
+    }));
+    const state = seedState();
+    const first = await run(
+      state,
+      msg({ externalId: "fb1", text: "nova viagem de curitiba para nova veneza" }),
+      assistant,
+      logs,
+    );
+    assert.ok(logs.some((l) => l.event === "assistant_missing_action_fallback"));
+    assert.equal(first.decision, "record_incomplete");
+    assert.equal(first.record?.status, "incompleto");
+    assert.equal(first.record?.viagem?.origin?.toLowerCase(), "curitiba");
+    assert.equal(first.record?.viagem?.destination?.toLowerCase(), "nova veneza");
+    assert.match(first.replies[0]?.text ?? "", /carga e a quantidade/i);
+    assert.doesNotMatch(first.replies[0]?.text ?? "", /Posso registrar/i);
+    const done = await run(state, msg({ externalId: "fb2", text: "arroz, 55 m3" }), assistant, logs);
+    assert.equal(done.record?.status, "completo");
+    assert.equal(done.record?.viagem?.material, "arroz");
+    assert.equal(done.record?.viagem?.quantity, 55);
+    assert.equal(done.record?.viagem?.unit, "m³");
+    assert.equal(
+      done.replies[0]?.text,
+      "Fechado, registrei a viagem de Curitiba para Nova Veneza com arroz, 55 m³.",
+    );
+    const ack = await run(state, msg({ externalId: "fb3", text: "pode" }), assistant, logs);
+    assert.doesNotMatch(ack.replies[0]?.text ?? "", /Posso registrar/i);
+    assert.equal(state.records.filter((r) => r.kind === "viagem").length, 1);
+  });
+
+  it("lets smalltalk without actions use the LLM message", async () => {
+    const assistant = script(() => ({
+      message: "Opa, estou aqui. Qualquer viagem, despesa ou abastecimento é só mandar.",
+      actions: [],
+      confidence: 0.9,
+    }));
+    const out = await run(seedState(), msg({ externalId: "hi1", text: "oi" }), assistant);
+    assert.equal(out.decision, "assisted");
+    assert.match(out.replies[0]?.text ?? "", /estou aqui/i);
+    assert.equal(out.record, undefined);
+  });
+
   it("asks confirmation for broadcast and does not send", async () => {
     const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
     const before = seedState();
@@ -287,6 +334,31 @@ describe("assistant product runtime", () => {
     assert.equal(out.decision, "assisted");
     assert.equal(out.replies[0]?.text, "Posso preparar isso, mas preciso de confirmação antes de executar.");
     assert.equal(before.conversations.length, convCount);
+    assert.ok(logs.some((l) => l.event === "assistant_actions_blocked"));
+  });
+
+  it("asks confirmation for sheet change and does not apply it", async () => {
+    const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const assistant = script(() => ({
+      message: "Já alterei a planilha de viagens.",
+      actions: [{ type: "sheet.change.request", description: "apagar linha da viagem" }],
+      needsConfirmation: true,
+      confidence: 0.9,
+    }));
+    const out = await run(
+      seedState(),
+      msg({
+        externalId: "sh1",
+        authorId: "alana",
+        authorRole: "alana",
+        conversationId: "conv-central",
+        text: "apaga a viagem da planilha",
+      }),
+      assistant,
+      logs,
+    );
+    assert.equal(out.decision, "assisted");
+    assert.equal(out.replies[0]?.text, "Posso preparar isso, mas preciso de confirmação antes de executar.");
     assert.ok(logs.some((l) => l.event === "assistant_actions_blocked"));
   });
 
