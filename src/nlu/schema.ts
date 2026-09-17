@@ -1,3 +1,4 @@
+import { mapPlannerFields } from "./plan.ts";
 import { NLU_ACTIONS, NLU_INTENTS, defaultActionForIntent, unknownNlu, type NluActionName, type NluIntentName, type NluResult } from "./types.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -23,6 +24,16 @@ function sanitizeSummary(value: unknown): string {
   return text.slice(0, 240);
 }
 
+function resolveAction(intent: NluIntentName, actionRaw: string): NluActionName {
+  if (actionRaw === "block") {
+    if (intent === "broadcast_request") return "block_broadcast";
+    if (intent === "sheet_change_request") return "block_sheets";
+    return "request_confirmation";
+  }
+  if (NLU_ACTIONS.includes(actionRaw as NluActionName)) return actionRaw as NluActionName;
+  return defaultActionForIntent(intent);
+}
+
 export function validateNluResult(input: unknown): NluResult {
   const obj = typeof input === "string" ? parseJsonObject(input) : asRecord(input);
   if (!obj) return unknownNlu("invalid_json");
@@ -31,11 +42,7 @@ export function validateNluResult(input: unknown): NluResult {
   if (!NLU_INTENTS.includes(intentRaw as NluIntentName)) return unknownNlu("unknown_intent");
   const intent = intentRaw as NluIntentName;
 
-  const actionRaw = String(obj.action ?? "");
-  const action: NluActionName = NLU_ACTIONS.includes(actionRaw as NluActionName)
-    ? (actionRaw as NluActionName)
-    : defaultActionForIntent(intent);
-
+  const action = resolveAction(intent, String(obj.action ?? ""));
   const confidence = Number(obj.confidence);
   const result: NluResult = {
     intent,
@@ -49,7 +56,8 @@ export function validateNluResult(input: unknown): NluResult {
     for (const [key, value] of Object.entries(obj.fields as Record<string, unknown>)) {
       if (typeof value === "string" || typeof value === "number") fields[key] = value;
     }
-    if (Object.keys(fields).length) result.fields = fields;
+    const mapped = mapPlannerFields(fields);
+    if (mapped) result.fields = mapped;
   }
   const recordTypeRaw = String(obj.record_type ?? obj.recordType ?? "");
   if (recordTypeRaw === "abastecimento" || recordTypeRaw === "despesa" || recordTypeRaw === "viagem") {
@@ -59,6 +67,13 @@ export function validateNluResult(input: unknown): NluResult {
   const targetId = obj.target_record_id ?? obj.targetRecordId;
   if (typeof targetId === "string" && targetId.trim()) result.targetRecordId = targetId.trim();
   if (typeof obj.reply === "string" && obj.reply.trim()) result.reply = obj.reply.trim();
+  if (Array.isArray(obj.missing_fields)) {
+    result.missingFields = obj.missing_fields.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+  } else if (Array.isArray(obj.missingFields)) {
+    result.missingFields = obj.missingFields.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+  }
+  if (typeof obj.is_complete === "boolean") result.isComplete = obj.is_complete;
+  else if (typeof obj.isComplete === "boolean") result.isComplete = obj.isComplete;
   if (obj.requiresConfirmation === true) result.requiresConfirmation = true;
   if (typeof obj.unsafeReason === "string" && obj.unsafeReason.trim()) {
     result.unsafeReason = obj.unsafeReason.trim();

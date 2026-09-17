@@ -47,7 +47,13 @@ export function parseCentralCommand(text: string): ParsedCommand {
 export function questionForMissing(
   kind: string,
   missing: string[],
-  hint?: { description?: string; amountBrl?: number; payment?: string },
+  hint?: {
+    description?: string;
+    amountBrl?: number;
+    payment?: string;
+    origin?: string;
+    destination?: string;
+  },
 ): string {
   if (kind === "despesa") {
     const name = hint?.description?.trim() ? ` com ${hint.description.trim()}` : "";
@@ -70,7 +76,9 @@ export function questionForMissing(
     const needCargo = missing.includes("material");
     const needQty = missing.includes("quantity") || missing.includes("unit");
     if (hasRoute && needCargo && needQty) {
-      return "Qual foi a carga e a quantidade (toneladas ou m³)?";
+      const from =
+        hint?.origin && hint?.destination ? ` de ${hint.origin} para ${hint.destination}` : "";
+      return `Entendi a viagem${from}. Qual foi a carga e a quantidade?`;
     }
     if (hasRoute && needCargo) return "Qual foi o material?";
     if (hasRoute && needQty) return "Quantas toneladas ou m³?";

@@ -38,6 +38,7 @@ import { buildNluContext } from "../nlu/context.ts";
 import { createFakeProvider } from "../nlu/fakeProvider.ts";
 import { gateSensitiveIntent } from "../nlu/gate.ts";
 import { lastTripForDriver } from "../nlu/status.ts";
+import { safePlanLogFields } from "../nlu/plan.ts";
 import { isUsableLlmResult, unknownNlu, type NluAuthorRole, type NluProvider, type NluResult } from "../nlu/types.ts";
 import { applyLlmInterpretation } from "./nluExecute.ts";
 import { planPendingResume } from "./resume.ts";
@@ -92,6 +93,8 @@ function expenseHint(record: OperationalRecord | undefined) {
     description: record?.despesa?.description,
     amountBrl: record?.despesa?.amountBrl,
     payment: record?.despesa?.payment,
+    origin: record?.viagem?.origin,
+    destination: record?.viagem?.destination,
   };
 }
 
@@ -177,9 +180,11 @@ export async function processMessageAsync(
     rejectReason,
     applied: !rejectReason,
   }));
+  emit?.("llm_plan_received", safePlanLogFields(interpreted));
 
   if (rejectReason) {
     emit?.("nlu_rejected", { rejectReason, provider: clock.nlu.name, intent: interpreted.intent, action: interpreted.action });
+    emit?.("llm_plan_rejected", { reason: rejectReason, ...safePlanLogFields(interpreted) });
     return processMessage(state, inboundRaw, { ...clock, nluFirst: false, nlu: createFakeProvider() });
   }
 
@@ -187,12 +192,20 @@ export async function processMessageAsync(
     name: clock.nlu.name,
     interpret: () => interpreted,
   };
-  return processMessage(state, inboundRaw, {
-    ...clock,
-    nluFirst: true,
-    nlu: cached,
-    nluEnabled: true,
-  });
+  const applied = await Promise.resolve(
+    processMessage(state, inboundRaw, {
+      ...clock,
+      nluFirst: true,
+      nlu: cached,
+      nluEnabled: true,
+    }),
+  );
+  if (interpreted.planCorrection) {
+    emit?.("llm_plan_corrected", { reason: interpreted.planCorrection, ...safePlanLogFields(interpreted) });
+  } else {
+    emit?.("llm_plan_applied", safePlanLogFields(interpreted));
+  }
+  return applied;
 }
 
 function applyNluResult(
@@ -590,6 +603,10 @@ export function processMessage(
       provider: clock.nlu?.name ?? "llm",
       intent: nlu?.intent ?? "unknown",
       action: nlu?.action ?? "none",
+    });
+    clock.nluLog?.("llm_plan_rejected", {
+      reason: "no_applicable_action",
+      ...safePlanLogFields(nlu ?? { intent: "unknown", action: "none", confidence: 0, reasoning_summary: "no_applicable_action" }),
     });
   }
 

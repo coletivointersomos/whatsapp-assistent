@@ -10,6 +10,7 @@ export const NLU_INTENTS = [
   "trip_status_question",
   "bot_identity_question",
   "operational_summary_request",
+  "smalltalk",
   "unknown",
 ] as const;
 
@@ -28,6 +29,7 @@ export const NLU_ACTIONS = [
   "broadcast_request",
   "ask_driver_followup",
   "request_confirmation",
+  "block",
   "block_sheets",
   "block_broadcast",
   "unknown",
@@ -49,6 +51,9 @@ export type NluResult = {
   target?: string;
   targetRecordId?: string;
   reply?: string;
+  missingFields?: string[];
+  isComplete?: boolean;
+  planCorrection?: string;
   requiresConfirmation?: boolean;
   unsafeReason?: string;
 };
@@ -126,6 +131,7 @@ export function defaultActionForIntent(intent: NluIntentName): NluActionName {
   if (intent === "sheet_change_request") return "block_sheets";
   if (intent === "broadcast_request") return "block_broadcast";
   if (intent === "ask_driver_followup") return "request_confirmation";
+  if (intent === "smalltalk") return "reply";
   if (
     intent === "admin_question" ||
     intent === "trip_status_question" ||

@@ -2,6 +2,7 @@ import {
   ABASTECIMENTO_REQUIRED,
   DESPESA_REQUIRED,
   VIAGEM_REQUIRED,
+  dayIso,
 } from "../domain/rules.ts";
 import type {
   AppState,
@@ -25,6 +26,7 @@ import {
   looksLikeComplementOnly,
   looksLikeNewOperationalEvent,
 } from "../extraction/pending.ts";
+import { coercePlanForRecord } from "../nlu/plan.ts";
 import { lastTripForDriver } from "../nlu/status.ts";
 import type { NluRecordType, NluResult } from "../nlu/types.ts";
 
@@ -75,12 +77,19 @@ function trustedFields(
 ): Record<string, string | number> {
   const extracted = extractComplement(kind, text, sentAt, vehicleHint);
   const fromText = { ...(extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {}) };
+  if (kind === "viagem" && fromText.date === undefined) {
+    fromText.date = dayIso(sentAt);
+  }
   if (!llmFields) return fromText;
   for (const key of ["description", "place", "origin", "destination", "material", "payment", "note", "unit"] as const) {
     const suggested = llmFields[key];
     if (fromText[key] === undefined && typeof suggested === "string" && suggested.trim()) {
       fromText[key] = suggested.trim().slice(0, 80);
     }
+  }
+  const approx = llmFields.approximate_date_text;
+  if (fromText.note === undefined && typeof approx === "string" && approx.trim()) {
+    fromText.note = `data aproximada: ${approx.trim().slice(0, 80)}`;
   }
   return fromText;
 }
@@ -164,17 +173,31 @@ function nluReplyFitsRecord(kind: NluRecordType, reply: string): boolean {
   return true;
 }
 
-function pickRecordReply(record: OperationalRecord, nluReply?: string): string {
+function recordQuestionHint(record: OperationalRecord) {
+  return {
+    description: record.despesa?.description,
+    amountBrl: record.despesa?.amountBrl,
+    payment: record.despesa?.payment,
+    origin: record.viagem?.origin,
+    destination: record.viagem?.destination,
+  };
+}
+
+function pickRecordReply(record: OperationalRecord, nlu?: NluResult): string {
+  const planned = nlu ? coercePlanForRecord(nlu, record) : undefined;
+  if (planned && nlu) {
+    nlu.reply = planned.reply;
+    nlu.isComplete = planned.isComplete;
+    nlu.missingFields = planned.missingFields;
+    nlu.planCorrection = planned.planCorrection;
+  }
+  const nluReply = planned?.reply;
   if (nluReply?.trim() && nluReplyFitsRecord(record.kind, nluReply)) return nluReply.trim();
   if (record.status === "completo") return confirmationForRecord(record.kind, record);
   if (record.kind === "despesa" && record.missing.includes("date") && !record.missing.includes("amountBrl")) {
     return expenseDateFollowup(record.despesa?.description, record.despesa?.amountBrl, record.despesa?.payment);
   }
-  return questionForMissing(record.kind, record.missing, {
-    description: record.despesa?.description,
-    amountBrl: record.despesa?.amountBrl,
-    payment: record.despesa?.payment,
-  });
+  return questionForMissing(record.kind, record.missing, recordQuestionHint(record));
 }
 
 function finishRecord(
@@ -183,7 +206,7 @@ function finishRecord(
   inbound: InboundMessage,
   record: OperationalRecord,
   allowReply: boolean,
-  nluReply?: string,
+  nlu?: NluResult,
 ): ProcessResult {
   record.missing = missingFields(record);
   record.status = record.missing.length === 0 ? "completo" : "incompleto";
@@ -192,7 +215,7 @@ function finishRecord(
   }
   const replies: BotReply[] = [];
   if (allowReply) {
-    replies.push(pushReply(state, conversationId, pickRecordReply(record, nluReply)));
+    replies.push(pushReply(state, conversationId, pickRecordReply(record, nlu)));
   }
   return {
     decision: record.status === "completo" ? "record_created" : "record_incomplete",
@@ -217,7 +240,11 @@ export function applyLlmInterpretation(input: {
   const sentAt = new Date(inbound.sentAt);
   const action = nlu.action;
 
-  if (action === "block_sheets" || action === "sheet_change_request" || nlu.intent === "sheet_change_request") {
+  if (
+    action === "block_sheets" ||
+    action === "sheet_change_request" ||
+    nlu.intent === "sheet_change_request"
+  ) {
     if (!isAdmin) return undefined;
     const reply =
       nlu.reply ??
@@ -229,7 +256,12 @@ export function applyLlmInterpretation(input: {
     };
   }
 
-  if (action === "block_broadcast" || action === "broadcast_request" || nlu.intent === "broadcast_request") {
+  if (
+    action === "block_broadcast" ||
+    action === "broadcast_request" ||
+    (action === "block" && nlu.intent === "broadcast_request") ||
+    nlu.intent === "broadcast_request"
+  ) {
     if (!isAdmin) return undefined;
     const reply =
       nlu.reply ??
@@ -243,7 +275,7 @@ export function applyLlmInterpretation(input: {
 
   if (action === "store_status_update" || nlu.intent === "driver_status_update") {
     if (!isDriver) return undefined;
-    const body = String(nlu.fields?.text ?? text).trim();
+    const body = String(nlu.fields?.text ?? nlu.fields?.status_text ?? text).trim();
     if (!body) return undefined;
     if (!state.statusUpdates) state.statusUpdates = [];
     const trip = lastTripForDriver(state, conversation.driverId);
@@ -311,7 +343,7 @@ export function applyLlmInterpretation(input: {
     if (updating && open) {
       if (open.missing.length === 0) open.missing = missingFields(open);
       applyComplement(open, fields);
-      return finishRecord(state, conversation.id, inbound, open, allowReply, nlu.reply);
+      return finishRecord(state, conversation.id, inbound, open, allowReply, nlu);
     }
 
     const record: OperationalRecord = {
@@ -328,7 +360,7 @@ export function applyLlmInterpretation(input: {
     record.missing = missingFields(record);
     record.status = record.missing.length === 0 ? "completo" : "incompleto";
     state.records.push(record);
-    return finishRecord(state, conversation.id, inbound, record, allowReply, nlu.reply);
+    return finishRecord(state, conversation.id, inbound, record, allowReply, nlu);
   }
 
   if (
