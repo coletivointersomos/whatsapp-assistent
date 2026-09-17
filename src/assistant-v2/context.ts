@@ -4,7 +4,6 @@ import type { AssistantV2Context } from "./types.ts";
 import {
   activeOfKind,
   lastSessionStatus,
-  lastSessionTrip,
   parseSessionStart,
   sessionMessages,
   sessionRecords,
@@ -15,12 +14,12 @@ export function buildAssistantV2Context(input: {
   state: AppState;
   inbound: Pick<InboundMessage, "text" | "conversationId">;
   conversation: Conversation;
-  authorRole: "admin" | "motorista";
+  authorRole: "admin" | "motorista" | "participante";
   sessionStartedAt?: string;
 }): AssistantV2Context {
   const sessionStartedAtMs = parseSessionStart(input.sessionStartedAt);
   const records = sessionRecords(input.state, input.conversation, sessionStartedAtMs);
-  const activeTrip = activeOfKind(records, "viagem") ?? lastSessionTrip(records);
+  const activeTrip = activeOfKind(records, "viagem");
   const activeExpense = activeOfKind(records, "despesa");
   const activeFuel = activeOfKind(records, "abastecimento");
   const driver = input.state.drivers.find((item) => item.id === input.conversation.driverId);
@@ -43,7 +42,7 @@ export function buildAssistantV2Context(input: {
   return {
     conversationId: maskJid(input.conversation.id),
     authorRole: input.authorRole,
-    driver: driver ? { id: driver.id, name: driver.name } : undefined,
+    recordOwner: driver ? { id: driver.id, vehicle: driver.vehicleHint } : undefined,
     vehicle: driver?.vehicleHint,
     recentMessages: recent,
     sessionRecords: records.map(toSessionView),
@@ -60,8 +59,10 @@ export function buildAssistantV2Context(input: {
       pendingCount: records.filter((item) => item.status === "incompleto").length,
     },
     capabilities: [
-      "registrar abastecimento, despesa, viagem e status",
-      "resumo local da sessão atual",
+      "conversar sobre qualquer assunto no WhatsApp",
+      "registrar abastecimento, despesa, viagem e status quando a mensagem for operacional",
+      "não inventar nome da pessoa",
+      "não puxar viagem em conversa solta",
       "não envia broadcast sem confirmação",
       "não altera Google Sheets real",
     ],

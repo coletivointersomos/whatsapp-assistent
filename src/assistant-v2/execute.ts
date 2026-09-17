@@ -106,7 +106,7 @@ export function executeAssistantV2Actions(input: {
   sessionStartedAt?: string;
   vehicleHint?: string;
 }): AssistantV2Outcome {
-  const { state, inbound, conversation, response, isAdmin, isDriver, sessionStartedAt, vehicleHint } = input;
+  const { state, inbound, conversation, response, sessionStartedAt, vehicleHint } = input;
   const text = inbound.text ?? "";
   const sentAt = new Date(inbound.sentAt);
   const sessionStartedAtMs = parseSessionStart(sessionStartedAt);
@@ -147,10 +147,6 @@ export function executeAssistantV2Actions(input: {
       continue;
     }
     if (action.type === "status.create") {
-      if (!isDriver && !isAdmin) {
-        blocked.push({ type: action.type, reason: "permission_denied" });
-        continue;
-      }
       if (!state.statusUpdates) state.statusUpdates = [];
       const trip =
         (action.tripRecordId &&
@@ -171,7 +167,7 @@ export function executeAssistantV2Actions(input: {
       continue;
     }
     if (action.type === "record.create") {
-      if (!conversation.driverId || (!isDriver && !isAdmin)) {
+      if (!conversation.driverId) {
         blocked.push({ type: action.type, reason: "permission_denied" });
         continue;
       }
@@ -196,7 +192,7 @@ export function executeAssistantV2Actions(input: {
       continue;
     }
     if (action.type === "record.update") {
-      if (!conversation.driverId || (!isDriver && !isAdmin)) {
+      if (!conversation.driverId) {
         blocked.push({ type: action.type, reason: "permission_denied" });
         continue;
       }

@@ -14,17 +14,6 @@ function titlePlace(value: string): string {
     .join(" ");
 }
 
-function llmContradictsRecord(message: string, record: OperationalRecord): boolean {
-  if (!message.trim()) return true;
-  if (record.status === "completo" && /qual foi a carga|confirmar a carga|posso registrar|unidade da carga/i.test(message)) {
-    return true;
-  }
-  if (record.status === "incompleto" && (/^fechado,/i.test(message.trim()) || /posso registrar|confirmar a carga/i.test(message))) {
-    return true;
-  }
-  return false;
-}
-
 function completeRecordReply(record: OperationalRecord): string {
   if (record.kind === "viagem") {
     const v = record.viagem ?? {};
@@ -92,14 +81,8 @@ export function composeV2Reply(input: {
       item.type === "sheet.change.request" ||
       item.type === "ask_driver.request",
   );
-  if (outcome.record?.status === "completo") {
-    if (llmMessage.trim() && !llmContradictsRecord(llmMessage, outcome.record)) return llmMessage.trim();
-    return completeRecordReply(outcome.record);
-  }
-  if (outcome.record?.status === "incompleto") {
-    if (llmMessage.trim() && !llmContradictsRecord(llmMessage, outcome.record)) return llmMessage.trim();
-    return incompleteRecordReply(outcome.record);
-  }
+  if (outcome.record?.status === "completo") return completeRecordReply(outcome.record);
+  if (outcome.record?.status === "incompleto") return incompleteRecordReply(outcome.record);
   if (outcome.statusCreated) return statusReply(state, conversation, sessionStartedAt, llmMessage);
   if (sensitiveBlocked) return BLOCKED_REPLY;
   if (outcome.summary?.trim()) return outcome.summary.trim();

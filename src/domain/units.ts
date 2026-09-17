@@ -24,6 +24,6 @@ export const CARGO_QTY_UNIT_RE = new RegExp(
 );
 
 export const CARGO_MATERIAL_QTY_RE = new RegExp(
-  String.raw`\b([A-Za-zÀ-ú]+)\s*[, ]+\s*(\d+(?:[.,]\d+)?)\s*(${UNIT_TOKEN})?(?=\s|$|,|\.|;)`,
+  String.raw`\b([A-Za-zÀ-ú]+)\s*[, ]+\s*(\d+(?:[.,]\d+)?)\s*(${UNIT_TOKEN})(?=\s|$|,|\.|;)`,
   "i",
 );

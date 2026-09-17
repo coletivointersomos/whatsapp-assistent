@@ -61,8 +61,9 @@ export type AssistantV2SessionRecord = {
 
 export type AssistantV2Context = {
   conversationId: string;
-  authorRole: "admin" | "motorista";
-  driver?: { id: string; name: string };
+  authorRole: "admin" | "motorista" | "participante";
+  /** Dono interno do registro da conversa. NÃO é quem está falando. Não cumprimentar com esse id. */
+  recordOwner?: { id: string; vehicle?: string };
   vehicle?: string;
   recentMessages: Array<{ role: string; text: string }>;
   sessionRecords: AssistantV2SessionRecord[];

@@ -12,7 +12,6 @@ import { previewReply } from "../nlu/audit.ts";
 import { buildAssistantV2Context } from "./context.ts";
 import { executeAssistantV2Actions, formatSessionSummary } from "./execute.ts";
 import {
-  V2_GREETING,
   V2_MISSING_ACTION_RETRY,
   buildV2FallbackActions,
   looksLikeGreeting,
@@ -68,20 +67,20 @@ export async function runAssistantV2(
     (c) => c.active && (c.id === inbound.conversationId || c.externalId === inbound.conversationId),
   );
   const authorRole = conversation ? resolveAuthorRole(state, inbound.authorId) : "desconhecido";
-  if (duplicate || !conversation || authorRole === "bot" || authorRole === "desconhecido") {
+  if (duplicate || !conversation || authorRole === "bot") {
     return undefined;
   }
   if (authorRole === "motorista" && looksLikeAdminCommand(inbound.text ?? "")) return undefined;
 
   const isAdmin = authorRole === "alana";
   const isDriver = authorRole === "motorista" && isPrincipalDriver(state, conversation.driverId, inbound.authorId);
-  if (!isAdmin && !isDriver) return undefined;
+  const v2Role = isAdmin ? "admin" : isDriver ? "motorista" : "participante";
 
   const ctx = buildAssistantV2Context({
     state,
     inbound,
     conversation,
-    authorRole: isAdmin ? "admin" : "motorista",
+    authorRole: v2Role,
     sessionStartedAt: clock.assistantV2SessionStartedAt,
   });
 
@@ -186,8 +185,10 @@ export async function runAssistantV2(
 
   if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked) {
     message = V2_MISSING_ACTION_RETRY;
-  } else if (!operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked && !outcome.summary) {
-    if (looksLikeGreeting(inbound.text ?? "") || !message.trim()) message = V2_GREETING;
+  } else if (!message.trim()) {
+    message = looksLikeGreeting(inbound.text ?? "")
+      ? "Oi, estou aqui. Pode perguntar o que quiser."
+      : "Não peguei. Pode repetir?";
   }
 
   const replies = message ? [pushReply(state, conversation.id, message)] : [];

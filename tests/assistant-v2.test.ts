@@ -67,7 +67,7 @@ function plantOldTrip(state: AppState) {
 }
 
 describe("assistant v2 session runtime", () => {
-  it("does not mention an old trip on alô", async () => {
+  it("does not mention an old trip on alô and keeps the LLM greeting", async () => {
     const state = seedState();
     plantOldTrip(state);
     const out = await run(
@@ -76,18 +76,73 @@ describe("assistant v2 session runtime", () => {
       script((ctx) => ({
         message: ctx.activeTrip
           ? `Continuando a viagem de ${ctx.activeTrip.origin} para ${ctx.activeTrip.destination}.`
-          : "Opa, estou aqui. Pode me mandar abastecimento, despesa, viagem ou atualização da rota.",
+          : "E aí! Em que posso ajudar?",
         actions: [],
         confidence: 0.9,
       })),
     );
     assert.equal(out.decision, "assisted");
-    assert.equal(
-      out.replies[0]?.text,
-      "Opa, estou aqui. Pode me mandar abastecimento, despesa, viagem ou atualização da rota.",
-    );
-    assert.doesNotMatch(out.replies[0]?.text ?? "", /Recife|Salvador/i);
+    assert.equal(out.replies[0]?.text, "E aí! Em que posso ajudar?");
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /Recife|Salvador|João/i);
     assert.equal(state.records.filter((r) => r.id !== "reg-zombie").length, 0);
+  });
+
+  it("answers a cake recipe without pulling the session trip or greeting João", async () => {
+    const state = seedState();
+    await run(
+      state,
+      msg({ externalId: "t1", text: "nova viagem de curitiba para nova veneza" }),
+      script(() => ({
+        message: "Entendi.",
+        actions: [{ type: "record.create", recordType: "viagem", fields: { origin: "Curitiba", destination: "Nova Veneza" } }],
+        confidence: 0.9,
+      })),
+    );
+    await run(
+      state,
+      msg({ externalId: "t2", text: "arroz, 55 m3" }),
+      script(() => ({
+        message: "Fechado.",
+        actions: [{ type: "record.update", recordType: "viagem", fields: { material: "arroz", quantity: 55, unit: "m³" } }],
+        confidence: 0.9,
+      })),
+    );
+    const out = await run(
+      state,
+      msg({ externalId: "r1", text: "me de uma receita de bolo" }),
+      script((ctx) => ({
+        message:
+          ctx.activeTrip || ctx.recordOwner
+            ? "Bolo simples: 3 ovos, 2 xícaras de farinha, 1 de açúcar, 1 de leite, 1 colher de fermento. Asse 40 min a 180°C."
+            : "Bolo simples: 3 ovos, 2 xícaras de farinha, 1 de açúcar, 1 de leite, 1 colher de fermento. Asse 40 min a 180°C.",
+        actions: [],
+        confidence: 0.9,
+      })),
+    );
+    assert.match(out.replies[0]?.text ?? "", /farinha|ovos|bolo/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /Curitiba|viagem|João|abastecimento/i);
+    assert.equal(out.record, undefined);
+  });
+
+  it("lets a group participant chat even if they are not the seeded driver", async () => {
+    const out = await run(
+      seedState(),
+      msg({
+        externalId: "bruno1",
+        authorId: "bruno-lid",
+        authorRole: "desconhecido",
+        text: "me de um link de receita",
+      }),
+      script((ctx) => ({
+        message: ctx.authorRole === "participante"
+          ? "Não tenho um link agora, mas a receita é: misture ovos, farinha, açúcar e leite e asse."
+          : "Oi, João!",
+        actions: [],
+        confidence: 0.9,
+      })),
+    );
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /João/i);
+    assert.match(out.replies[0]?.text ?? "", /receita|farinha/i);
   });
 
   it("creates a session trip from nova viagem de curitiba para nova veneza", async () => {
