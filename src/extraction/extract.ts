@@ -38,7 +38,10 @@ function detectKind(text: string): RecordKind | undefined {
   if (/\bgasto\b/i.test(text) && /\bmotor\b/i.test(text)) return "despesa";
   if (/\b(gastei|despesa|gasto)\b/i.test(text)) return "despesa";
   if (/\bviagem\b/i.test(text)) return "viagem";
-  if (/\bfrete\b/i.test(text) && /\bde\s+.+\s+para\s+/i.test(text)) return "viagem";
+  if (/\bfrete\b/i.test(text) && /\bde\s+.+\s+(?:para|pra|at[eé]|ate)\s+/i.test(text)) return "viagem";
+  if (/\bde\s+.+\s+(?:para|pra|at[eé]|ate)\s+/i.test(text) && !/\b(suspender|listar)\b/i.test(text)) {
+    return "viagem";
+  }
   return undefined;
 }
 
@@ -50,6 +53,9 @@ const COMPLEMENT_RESERVED = new Set([
   "na",
   "de",
   "para",
+  "pra",
+  "ate",
+  "até",
   "com",
   "em",
   "pago",
@@ -150,8 +156,45 @@ function extractDespesa(text: string, sentAt: Date, vehicle?: string) {
   return fields;
 }
 
+const ROUTE_TO = String.raw`(?:para|pra|at[eé]|ate)`;
+const ROUTE_STOP = String.raw`(?=\s+com\b|\s+\d|,|;|$)`;
+
+function cleanPlace(value: string): string {
+  return value
+    .replace(/\bviagem\b/gi, " ")
+    .replace(/^(al[oô]|oi|ola|olá)[,.\s]+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractRoute(text: string): { origin: string; destination: string } | undefined {
+  const de = text.match(new RegExp(String.raw`\bde\s+(.+?)\s+${ROUTE_TO}\s+(.+?)${ROUTE_STOP}`, "i"));
+  if (de) {
+    const origin = cleanPlace(de[1]);
+    const destination = cleanPlace(de[2]);
+    if (origin && destination) return { origin, destination };
+  }
+  if (/\b(suspender|listar)\b/i.test(text)) return undefined;
+  const ate = text.match(new RegExp(String.raw`(?:^|[,;]\s*)(.+?)\s+${ROUTE_TO}\s+(.+?)${ROUTE_STOP}`, "i"));
+  if (!ate) return undefined;
+  const origin = cleanPlace(ate[1]);
+  const destination = cleanPlace(ate[2]);
+  if (origin && destination) return { origin, destination };
+  return undefined;
+}
+
+function samePlace(value: string, place: string | number | undefined): boolean {
+  return typeof place === "string" && value.trim().toLowerCase() === place.trim().toLowerCase();
+}
+
+function isRouteMaterial(value: string, origin?: string | number, destination?: string | number): boolean {
+  if (isReservedWord(value)) return true;
+  if (samePlace(value, origin) || samePlace(value, destination)) return true;
+  return /\b(de|para|pra|at[eé]|ate|viagem)\b/i.test(value);
+}
+
 function extractViagem(text: string, sentAt: Date, vehicle?: string) {
-  const route = text.match(/\bde\s+(.+?)\s+(?:para|pra)\s+(.+?)(?=\s+com\b|,|$)/i);
+  const route = extractRoute(text);
   const qty = text.match(CARGO_QTY_UNIT_RE);
   const material = text.match(/\b(?:com|de|,)\s*([a-zA-Zá-úÁ-Ú]+)\s+(\d+(?:[.,]\d+)?)\s*(?:toneladas?|t\b|m[³3])/i)
     ?? text.match(/,\s*([a-zA-Zá-úÁ-Ú]+)\s*,/i);
@@ -163,29 +206,41 @@ function extractViagem(text: string, sentAt: Date, vehicle?: string) {
   const date = resolveDate(text, sentAt);
   if (date) fields.date = date;
   if (route) {
-    fields.origin = route[1].trim();
-    fields.destination = route[2].trim();
+    fields.origin = route.origin;
+    fields.destination = route.destination;
   }
   if (qty) {
     fields.quantity = parseNumber(qty[1]);
     const unit = normalizeCargoUnit(qty[2]);
     if (unit) fields.unit = unit;
   }
-  if (material) fields.material = material[1].trim();
+  if (material && !isRouteMaterial(material[1], fields.origin, fields.destination)) {
+    fields.material = material[1].trim();
+  }
+  if (!fields.material && qty && qty.index !== undefined) {
+    const after = text.slice(qty.index + qty[0].length).match(/^\s*[,.]?\s*([A-Za-zÀ-ú]{3,})\b/);
+    if (after && !isRouteMaterial(after[1], fields.origin, fields.destination)) {
+      fields.material = after[1].trim();
+    }
+  }
   if (!fields.material) {
     const beforeQty = text.match(CARGO_MATERIAL_QTY_RE);
-    if (beforeQty && !isReservedWord(beforeQty[1])) {
-      fields.material = beforeQty[1].trim();
-      if (fields.quantity === undefined && beforeQty[2]) fields.quantity = parseNumber(beforeQty[2]);
-      if (fields.unit === undefined && beforeQty[3]) {
-        const unit = normalizeCargoUnit(beforeQty[3]);
-        if (unit) fields.unit = unit;
+    if (beforeQty && !isRouteMaterial(beforeQty[1], fields.origin, fields.destination)) {
+      const idx = beforeQty.index ?? 0;
+      const prefix = text.slice(Math.max(0, idx - 16), idx);
+      if (!new RegExp(String.raw`${ROUTE_TO}\s*$`, "i").test(prefix)) {
+        fields.material = beforeQty[1].trim();
+        if (fields.quantity === undefined && beforeQty[2]) fields.quantity = parseNumber(beforeQty[2]);
+        if (fields.unit === undefined && beforeQty[3]) {
+          const unit = normalizeCargoUnit(beforeQty[3]);
+          if (unit) fields.unit = unit;
+        }
       }
     }
   }
   if (!fields.material) {
     const lone = text.trim().match(/^(?:foi|era)\s+([A-Za-zÀ-ú]+)$/i) ?? text.trim().match(/^([A-Za-zÀ-ú]+)$/i);
-    if (lone && !isReservedWord(lone[1])) fields.material = lone[1].trim();
+    if (lone && !isRouteMaterial(lone[1], fields.origin, fields.destination)) fields.material = lone[1].trim();
   }
   if (unitPrice) fields.unitPrice = parseNumber(unitPrice[1]);
   if (freightTotal && freightTotal.index !== undefined) {

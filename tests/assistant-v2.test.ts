@@ -432,25 +432,66 @@ describe("assistant v2 session runtime", () => {
     assert.notEqual(out.record?.id, "reg-zombie");
   });
 
-  it("falls back when operational text has empty actions and still ignores zombies", async () => {
+  it("retries the LLM for actions instead of regex-extracting Curitiba as material", async () => {
     const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
     const state = seedState();
     plantOldTrip(state);
-    const talk = emptyTalk("Posso registrar essa viagem?");
+    let calls = 0;
+    const assistant = script((ctx) => {
+      calls += 1;
+      if (ctx.persistHint === "emit_record_actions") {
+        return {
+          message: "Anotei a viagem de Araranguá para Curitiba, 50 m³ de feijão.",
+          actions: [
+            {
+              type: "record.create",
+              recordType: "viagem",
+              fields: {
+                origin: "Araranguá",
+                destination: "Curitiba",
+                material: "feijão",
+                quantity: 50,
+                unit: "m³",
+              },
+            },
+          ],
+          confidence: 0.95,
+        };
+      }
+      return {
+        message: "Anotado. Viagem de Araranguá para Curitiba, 50 m³ de feijão.",
+        actions: [],
+        confidence: 0.9,
+      };
+    });
     const first = await run(
       state,
-      msg({ externalId: "f1", text: "nova viagem de curitiba para nova veneza" }),
-      talk,
+      msg({ externalId: "f1", text: "alo, viagem de ararangua até curitiba, 50 m3 feijao" }),
+      assistant,
       logs,
     );
-    assert.ok(logs.some((l) => l.event === "assistant_v2_missing_action_fallback"));
-    assert.equal(first.record?.status, "incompleto");
-    assert.equal(first.record?.id, "reg-f1");
-    assert.doesNotMatch(first.replies[0]?.text ?? "", /Posso registrar/i);
-    const done = await run(state, msg({ externalId: "f2", text: "arroz, 55 m3" }), talk, logs);
-    assert.equal(done.record?.status, "completo");
-    assert.equal(done.record?.viagem?.material, "arroz");
+    assert.ok(calls >= 2);
+    assert.ok(logs.some((l) => l.event === "assistant_v2_action_retry"));
+    assert.equal(first.record?.status, "completo");
+    assert.equal(first.record?.viagem?.origin?.toLowerCase(), "araranguá");
+    assert.equal(first.record?.viagem?.destination?.toLowerCase(), "curitiba");
+    assert.equal(first.record?.viagem?.material?.toLowerCase(), "feijão");
+    assert.equal(first.record?.viagem?.quantity, 50);
+    assert.match(first.replies[0]?.text ?? "", /feijão/i);
+    assert.doesNotMatch(first.replies[0]?.text ?? "", /origem e o destino/i);
     assert.equal(state.records.find((r) => r.id === "reg-zombie")?.status, "incompleto");
     assert.equal(state.records.find((r) => r.id === "reg-zombie")?.viagem?.material, undefined);
+  });
+
+  it("keeps the Hermes reply when the model talks but still has no actions after retry", async () => {
+    const state = seedState();
+    const out = await run(
+      state,
+      msg({ externalId: "f3", text: "alo, viagem de ararangua até curitiba, 50 m3 feijao" }),
+      emptyTalk("Anotado. Viagem de Araranguá para Curitiba, 50 m³ de feijão."),
+    );
+    assert.equal(out.record, undefined);
+    assert.match(out.replies[0]?.text ?? "", /Araranguá|Curitiba|feijão/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /origem e o destino/i);
   });
 });

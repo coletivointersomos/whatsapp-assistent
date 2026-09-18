@@ -47,7 +47,7 @@ export function buildAssistantV2Context(input: {
   return {
     conversationId: maskJid(input.conversation.id),
     authorRole: input.authorRole,
-    recordOwner: operational && driver ? { id: driver.id, vehicle: driver.vehicleHint } : undefined,
+    recordOwner: operational && driver ? { id: "sessao", vehicle: driver.vehicleHint } : undefined,
     vehicle: operational ? driver?.vehicleHint : undefined,
     recentMessages: recent,
     sessionRecords: operational ? records.map(toSessionView) : [],

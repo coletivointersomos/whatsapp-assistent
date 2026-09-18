@@ -81,10 +81,13 @@ export function composeV2Reply(input: {
       item.type === "sheet.change.request" ||
       item.type === "ask_driver.request",
   );
+  const spoken = llmMessage.trim();
+  if (sensitiveBlocked) return BLOCKED_REPLY;
+  if (outcome.summary?.trim()) return outcome.summary.trim();
+  if (spoken) return spoken;
   if (outcome.record?.status === "completo") return completeRecordReply(outcome.record);
   if (outcome.record?.status === "incompleto") return incompleteRecordReply(outcome.record);
   if (outcome.statusCreated) return statusReply(state, conversation, sessionStartedAt, llmMessage);
-  if (sensitiveBlocked) return BLOCKED_REPLY;
   if (outcome.summary?.trim()) return outcome.summary.trim();
-  return llmMessage.trim();
+  return "";
 }

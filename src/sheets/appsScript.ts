@@ -14,9 +14,13 @@ export async function postAppsScriptRewrite(input: {
   const headers = { "content-type": "application/json" };
   try {
     let response = await fetchImpl(input.url, { method: "POST", headers, body, redirect: "manual" });
-    const location = response.headers.get("location");
-    if (location && response.status >= 300 && response.status < 400) {
-      response = await fetchImpl(location, { method: "POST", headers, body, redirect: "follow" });
+    let hops = 0;
+    while (response.status >= 300 && response.status < 400 && hops < 5) {
+      const location = response.headers.get("location");
+      if (!location) break;
+      const next = new URL(location, input.url).href;
+      hops += 1;
+      response = await fetchImpl(next, { method: "GET", redirect: "manual" });
     }
     const raw = await response.text();
     if (!response.ok) return { ok: false, reason: `apps_script_http_${response.status}` };

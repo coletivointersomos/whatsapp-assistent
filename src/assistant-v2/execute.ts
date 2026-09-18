@@ -12,7 +12,7 @@ import type {
   OperationalStatusUpdate,
   ProcessDecision,
 } from "../domain/types.ts";
-import { extractComplement } from "../extraction/extract.ts";
+import { operationalRecordId } from "../domain/recordId.ts";
 import { normalizeCargoUnit } from "../domain/units.ts";
 import type { AssistantV2Action, AssistantV2RecordType, AssistantV2Response } from "./types.ts";
 import { activeOfKind, lastSessionTrip, parseSessionStart, recordInCurrentSession, sessionRecords } from "./session.ts";
@@ -60,23 +60,19 @@ function asScalarMap(fields: Record<string, unknown>): Record<string, string | n
 
 function mergeFields(
   kind: AssistantV2RecordType,
-  text: string,
+  _text: string,
   sentAt: Date,
   llmFields: Record<string, unknown>,
   vehicleHint?: string,
 ): Record<string, string | number> {
-  const extracted = extractComplement(kind, text, sentAt, vehicleHint);
-  const fromText = { ...(extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {}) };
-  if (kind === "viagem" && fromText.date === undefined) fromText.date = dayIso(sentAt);
   const suggested = asScalarMap(llmFields);
-  for (const key of Object.keys(suggested)) {
-    if (fromText[key] === undefined || fromText[key] === "") fromText[key] = suggested[key];
+  if (kind === "viagem" && suggested.date === undefined) suggested.date = dayIso(sentAt);
+  if (vehicleHint && suggested.vehicle === undefined) suggested.vehicle = vehicleHint;
+  if (typeof suggested.unit === "string") {
+    const unit = normalizeCargoUnit(suggested.unit);
+    if (unit) suggested.unit = unit;
   }
-  if (typeof fromText.unit === "string") {
-    const unit = normalizeCargoUnit(fromText.unit);
-    if (unit) fromText.unit = unit;
-  }
-  return fromText;
+  return suggested;
 }
 
 function applyInto(record: OperationalRecord, incoming: Record<string, string | number>) {
@@ -173,7 +169,7 @@ export function executeAssistantV2Actions(input: {
       }
       const fields = mergeFields(action.recordType, text, sentAt, action.fields, vehicleHint);
       const created: OperationalRecord = {
-        id: `reg-${inbound.externalId}`,
+        id: operationalRecordId(inbound.externalId),
         kind: action.recordType,
         driverId: conversation.driverId,
         status: "incompleto",

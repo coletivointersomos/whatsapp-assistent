@@ -32,8 +32,10 @@ describe("sheets apps script", () => {
       const href = String(url);
       calls.push(`${init?.method ?? "GET"} ${href}`);
       const body = String(init?.body ?? "");
-      assert.match(body, /secret-token/);
-      assert.match(body, /record_id/);
+      if ((init?.method ?? "GET") === "POST") {
+        assert.match(body, /secret-token/);
+        assert.match(body, /record_id/);
+      }
       if (href.includes("script.google.com") && init?.redirect === "manual") {
         return new Response(null, {
           status: 302,
@@ -52,7 +54,7 @@ describe("sheets apps script", () => {
     assert.equal(posted.ok, true);
     if (posted.ok) assert.equal(posted.rowCount, 0);
     assert.ok(calls.some((item) => item.includes("script.google.com")));
-    assert.ok(calls.some((item) => item.includes("script.googleusercontent.com")));
+    assert.ok(calls.some((item) => item.startsWith("GET https://script.googleusercontent.com")));
   });
 
   it("writes the session through writeSessionToSheet when Apps Script is configured", async () => {

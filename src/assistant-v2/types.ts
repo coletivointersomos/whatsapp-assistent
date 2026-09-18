@@ -77,6 +77,8 @@ export type AssistantV2Context = {
   blockedActions: string[];
   message: string;
   currentUserMessage: string;
+  /** Segunda chamada: o modelo já falou, falta persistir via actions. */
+  persistHint?: "emit_record_actions";
 };
 
 export type AssistantV2Provider = {

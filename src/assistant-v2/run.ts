@@ -122,6 +122,22 @@ export async function runAssistantV2(
   const operational = looksOperationalV2(inbound.text ?? "", hasPending);
   let response = isUsableAssistantV2(interpreted) ? interpreted : emptyAssistantV2(interpreted.notes ?? "unusable");
 
+  if (operational && response.actions.length === 0 && clock.assistantV2) {
+    emit?.("assistant_v2_action_retry", logFields(response));
+    try {
+      const retried = await Promise.resolve(
+        clock.assistantV2.interpret({ ...ctx, persistHint: "emit_record_actions" }),
+      );
+      emit?.("assistant_v2_action_retry_received", logFields(retried));
+      if (isUsableAssistantV2(retried) && retried.actions.length) {
+        interpreted = retried;
+        response = retried;
+      }
+    } catch {
+      /* mantém a primeira fala do Hermes */
+    }
+  }
+
   if (operational && response.actions.length === 0) {
     const fallbackActions = buildV2FallbackActions({
       state,
@@ -129,11 +145,13 @@ export async function runAssistantV2(
       conversation,
       sessionStartedAt: clock.assistantV2SessionStartedAt,
     });
-    emit?.("assistant_v2_missing_action_fallback", {
-      fallback_types: fallbackActions.map((action) => action.type),
-      ...logFields(response),
-    });
-    if (fallbackActions.length) response = { ...response, actions: fallbackActions, confidence: Math.max(response.confidence, 0.7) };
+    if (fallbackActions.length) {
+      emit?.("assistant_v2_missing_action_fallback", {
+        fallback_types: fallbackActions.map((action) => action.type),
+        ...logFields(response),
+      });
+      response = { ...response, actions: fallbackActions, confidence: Math.max(response.confidence, 0.7) };
+    }
   }
 
   const vehicleHint = state.drivers.find((d) => d.id === conversation.driverId)?.vehicleHint;
@@ -196,7 +214,7 @@ export async function runAssistantV2(
     sessionStartedAt: clock.assistantV2SessionStartedAt,
   });
 
-  if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked) {
+  if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked && !interpreted.message.trim()) {
     message = V2_MISSING_ACTION_RETRY;
   } else if (!message.trim()) {
     message = chatUnavailableReply(inbound.text ?? "", interpreted.notes);
