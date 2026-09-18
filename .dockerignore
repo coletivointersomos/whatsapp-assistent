@@ -1,0 +1,16 @@
+node_modules
+.git
+.gitignore
+data
+.env
+.env.*
+!.env.example
+contabo-api.env
+config/channel.json
+config/channel.local.json
+*.tsbuildinfo
+docs
+fixtures
+tests
+agent-transcripts
+.cursor

@@ -1,0 +1,23 @@
+{
+  "now": "2026-09-09T12:00:00.000Z",
+  "messages": [
+    {
+      "externalId": "m-viagem-1",
+      "conversationId": "conv-ana",
+      "authorId": "motorista-ana",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:00:00.000Z",
+      "type": "texto",
+      "text": "hoje viagem de Luis Eduardo para Simões Dias com milho 35 toneladas"
+    },
+    {
+      "externalId": "m-frete-1",
+      "conversationId": "conv-ana",
+      "authorId": "motorista-ana",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:05:00.000Z",
+      "type": "texto",
+      "text": "hoje frete de Barreiras para Recife, soja, 47 m3"
+    }
+  ]
+}
