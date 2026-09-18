@@ -483,15 +483,34 @@ describe("assistant v2 session runtime", () => {
     assert.equal(state.records.find((r) => r.id === "reg-zombie")?.viagem?.material, undefined);
   });
 
-  it("keeps the Hermes reply when the model talks but still has no actions after retry", async () => {
+  it("keeps the Hermes reply and still persists when actions stay empty", async () => {
     const state = seedState();
     const out = await run(
       state,
       msg({ externalId: "f3", text: "alo, viagem de ararangua até curitiba, 50 m3 feijao" }),
       emptyTalk("Anotado. Viagem de Araranguá para Curitiba, 50 m³ de feijão."),
     );
-    assert.equal(out.record, undefined);
+    assert.equal(out.record?.viagem?.destination?.toLowerCase(), "curitiba");
+    assert.equal(out.record?.viagem?.material?.toLowerCase(), "feijao");
     assert.match(out.replies[0]?.text ?? "", /Araranguá|Curitiba|feijão/i);
     assert.doesNotMatch(out.replies[0]?.text ?? "", /origem e o destino/i);
+  });
+
+  it("persists the trip from the phrase when the LLM times out", async () => {
+    const logs: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const out = await run(
+      seedState(),
+      msg({ externalId: "f4", text: "alo, viagem de ararangua até curitiba, 50 m3 feijao" }),
+      script(() => emptyAssistantV2("llm_timeout")),
+      logs,
+    );
+    assert.equal(logs.some((l) => l.event === "assistant_v2_action_retry"), false);
+    assert.equal(out.record?.status, "completo");
+    assert.equal(out.record?.viagem?.origin?.toLowerCase(), "ararangua");
+    assert.equal(out.record?.viagem?.destination?.toLowerCase(), "curitiba");
+    assert.equal(out.record?.viagem?.material?.toLowerCase(), "feijao");
+    assert.notEqual(out.record?.viagem?.material?.toLowerCase(), "curitiba");
+    assert.match(out.replies[0]?.text ?? "", /Curitiba/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /Não consegui registrar/i);
   });
 });

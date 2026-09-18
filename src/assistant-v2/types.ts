@@ -98,7 +98,7 @@ export function emptyAssistantV2(reason: string): AssistantV2Response {
 export function isUsableAssistantV2(result: AssistantV2Response): boolean {
   if (result.confidence < 0.45) return false;
   if (!result.message.trim() && result.actions.length === 0) return false;
-  if (result.notes === "invalid_json" || result.notes === "llm_failed" || result.notes?.startsWith("llm_http")) {
+  if (result.notes === "invalid_json" || result.notes === "llm_failed" || result.notes === "llm_timeout" || result.notes?.startsWith("llm_http")) {
     return false;
   }
   return true;

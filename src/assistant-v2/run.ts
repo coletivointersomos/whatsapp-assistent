@@ -50,6 +50,7 @@ function logFields(result: AssistantV2Response): Record<string, unknown> {
     needsConfirmation: Boolean(result.needsConfirmation),
     message_preview: preview.replyPreview ?? "",
     hasMessage: preview.hasReply,
+    notes: result.notes ?? "",
   };
 }
 
@@ -123,18 +124,24 @@ export async function runAssistantV2(
   let response = isUsableAssistantV2(interpreted) ? interpreted : emptyAssistantV2(interpreted.notes ?? "unusable");
 
   if (operational && response.actions.length === 0 && clock.assistantV2) {
-    emit?.("assistant_v2_action_retry", logFields(response));
-    try {
-      const retried = await Promise.resolve(
-        clock.assistantV2.interpret({ ...ctx, persistHint: "emit_record_actions" }),
-      );
-      emit?.("assistant_v2_action_retry_received", logFields(retried));
-      if (isUsableAssistantV2(retried) && retried.actions.length) {
-        interpreted = retried;
-        response = retried;
+    const hardFail =
+      interpreted.notes === "llm_timeout" ||
+      interpreted.notes === "llm_failed" ||
+      interpreted.notes?.startsWith("llm_http");
+    if (!hardFail) {
+      emit?.("assistant_v2_action_retry", logFields(response));
+      try {
+        const retried = await Promise.resolve(
+          clock.assistantV2.interpret({ ...ctx, persistHint: "emit_record_actions" }),
+        );
+        emit?.("assistant_v2_action_retry_received", logFields(retried));
+        if (isUsableAssistantV2(retried) && retried.actions.length) {
+          interpreted = retried;
+          response = retried;
+        }
+      } catch {
+        /* extração de reserva entra abaixo */
       }
-    } catch {
-      /* mantém a primeira fala do Hermes */
     }
   }
 

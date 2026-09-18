@@ -69,6 +69,10 @@ describe("llm http helper", () => {
       choices: [{ message: { content: JSON.parse(validJson) } }],
     });
     assert.equal((obj as { intent?: string }).intent, "bot_identity_question");
+    const fromReasoning = extractChatMessageContent({
+      choices: [{ message: { content: "", reasoning_content: validJson } }],
+    });
+    assert.match(String(fromReasoning), /bot_identity_question/);
   });
 
   it("masks keys, urls and long hex from error bodies", () => {

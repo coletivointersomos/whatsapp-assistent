@@ -51,10 +51,13 @@ export function extractChatMessageContent(body: unknown): unknown {
   if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
     const message = (choices[0] as Record<string, unknown>).message;
     if (message && typeof message === "object") {
-      const content = (message as Record<string, unknown>).content;
+      const recMsg = message as Record<string, unknown>;
+      const content = recMsg.content;
       if (content && typeof content === "object" && !Array.isArray(content)) return content;
       const text = textFromContentParts(content);
       if (text) return text;
+      const reasoning = textFromContentParts(recMsg.reasoning_content);
+      if (reasoning) return reasoning;
     }
   }
   if (typeof rec.content === "string") return stripCodeFence(rec.content);
