@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import type { AppState, OperationalRecord } from "../domain/types.ts";
 import { recordInCurrentSession, parseSessionStart } from "../assistant-v2/session.ts";
 import { isSyncEligible, recordToRow, type SheetRow } from "./mapper.ts";
-import { loadSheetsWriteConfig, sheetsWriteSkipReason, type SheetsWriteConfig } from "./config.ts";
+import { loadSheetsWriteConfig, sheetsWriteSkipReason, canWriteAppsScript, type SheetsWriteConfig } from "./config.ts";
 import { fetchGoogleAccessToken, type ServiceAccountFile } from "./googleJwt.ts";
-import { replaceSheetValues } from "./googleSheets.ts";
+import { replaceSheetValues, rowsToValueRange } from "./googleSheets.ts";
+import { postAppsScriptRewrite } from "./appsScript.ts";
 
 export function recordsForSheet(state: AppState, sessionStartedAt?: string): OperationalRecord[] {
   const sessionMs = parseSessionStart(sessionStartedAt);
@@ -34,7 +35,11 @@ export function formatRewritePreview(input: {
     `Aba: ${input.config.tabName}`,
     `Sessão: ${session}`,
     `Linhas: ${rows.length}`,
-    skip ? `Escrita: bloqueada (${skip})` : "Escrita: pronta (use --apply)",
+    skip
+      ? `Escrita: bloqueada (${skip})`
+      : canWriteAppsScript(input.config)
+        ? "Escrita: Apps Script (use --apply)"
+        : "Escrita: pronta (use --apply)",
     "",
   ].join("\n");
 }
@@ -42,6 +47,26 @@ export function formatRewritePreview(input: {
 function loadServiceAccount(path: string): ServiceAccountFile {
   const raw = readFileSync(path, "utf8");
   return JSON.parse(raw) as ServiceAccountFile;
+}
+
+export async function writeSessionToSheet(input: {
+  state: AppState;
+  config?: SheetsWriteConfig;
+  account?: ServiceAccountFile;
+  fetchImpl?: typeof fetch;
+}): Promise<{ ok: true; rowCount: number } | { ok: false; reason: string }> {
+  const config = input.config ?? loadSheetsWriteConfig();
+  if (canWriteAppsScript(config)) {
+    const rows = sheetRowsFromState(input.state, config.sessionStartedAt);
+    return postAppsScriptRewrite({
+      url: config.appsScriptUrl,
+      token: config.appsScriptToken,
+      tabName: config.tabName,
+      values: rowsToValueRange(rows),
+      fetchImpl: input.fetchImpl,
+    });
+  }
+  return writeStateToGoogleSheet(input);
 }
 
 export async function writeStateToGoogleSheet(input: {

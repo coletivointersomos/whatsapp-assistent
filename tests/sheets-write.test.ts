@@ -127,6 +127,8 @@ describe("sheets google write", () => {
         credentialsPath: "inline",
         spreadsheetId: "sheet123",
         tabName: "registros",
+        appsScriptUrl: "",
+        appsScriptToken: "",
       },
       account: {
         client_email: "bot@example.iam.gserviceaccount.com",

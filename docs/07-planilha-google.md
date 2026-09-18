@@ -1,38 +1,38 @@
 # 07 — Planilha Google
 
-**Status:** código de rewrite pronto; **gravação off** até existirem ID + JSON no servidor.  
+**Status:** rewrite via **Apps Script** (quinta) ou service account (reserva). Gravação off até URL+token no servidor.  
 **Ainda não:** app Workspace / pasta Drive de produção.
 
-## Experimento (quinta)
+## Experimento (quinta) — Apps Script
 
-O robô **não** faz upsert linha a linha na API. Depois de persistir o `store`, se a escrita estiver configurada, ele:
+O robô, depois de persistir o `store`, faz POST na URL do script. O script **reescreve** a aba `registros` (header + linhas da sessão). `record_id` = id do registro. Sem GCP, sem JSON de service account.
 
-1. garante a aba (`SHEETS_TAB_NAME`, padrão `registros`);
-2. limpa a aba;
-3. escreve header + linhas da sessão.
+### No Google
 
-`record_id` = `OperationalRecord.id`. Incompleto que fecha reaparece na mesma linha no próximo rewrite.
+1. Criar a planilha (pode ficar na pasta da transportadora).
+2. Extensões → Apps Script. Apagar o stub. Colar `apps-script/registros-sync.gs`.
+3. Em `SYNC_TOKEN`, o **mesmo** valor que vai em `SHEETS_APPS_SCRIPT_TOKEN` (não commitar).
+4. Implantar → Nova implantação → **Aplicativo da Web** → executar como você → acesso **Qualquer pessoa**.
+5. Copiar a URL que termina em `/exec`.
 
-### Checklist (você, fora do git)
-
-1. Criar service account, ligar Google Sheets API.
-2. Criar a planilha; copiar o ID da URL.
-3. Compartilhar a planilha com o e-mail da service account (**editor**).
-4. JSON gitignorado no servidor (`GOOGLE_APPLICATION_CREDENTIALS`). Nunca commit.
-5. No `.env` do **transportadora** (não no lab/OpenWA):
+### No `.env` do transportadora
 
 ```
 SHEETS_SYNC_ENABLED=true
-SHEETS_SPREADSHEET_ID=...
-GOOGLE_APPLICATION_CREDENTIALS=/caminho/gitignorado.json
+SHEETS_APPS_SCRIPT_URL=https://script.google.com/macros/s/.../exec
+SHEETS_APPS_SCRIPT_TOKEN=o-mesmo-do-script
 SHEETS_TAB_NAME=registros
 ```
 
-6. Conferir local: `npm run sheets:sync` deve mostrar `rewrite da aba` e, sem credencial, `Escrita: bloqueada`. Com os três itens acima, `--apply` grava.
-7. Log no webhook: `sheets_sync_ok` / `sheets_sync_skipped` / `sheets_sync_failed`. `SHEETS_SYNC_ENABLED=true` sem arquivo → `credentials_file_missing` a cada persist, sem inventar sucesso.
+Log: `sheets_sync_ok` / `sheets_sync_skipped` / `sheets_sync_failed`.  
+`npm run sheets:sync` = dry-run. `--apply` dispara o POST se URL+token existirem.
 
-`ASSISTANT_V2_SESSION_STARTED_AT` corta o que entra na aba. Sem essa data, entram todos os registros elegíveis do store.
+`ASSISTANT_V2_SESSION_STARTED_AT` corta o que entra na aba.
+
+## Reserva (service account)
+
+Continua no código. Só entra se **não** houver `SHEETS_APPS_SCRIPT_URL`.
 
 ## Produção (depois)
 
-App Workspace do Coletivo + pasta Drive da transportadora. Alana vê os arquivos; o robô trabalha a pasta.
+App Workspace do Coletivo + pasta Drive. O Apps Script é o atalho da quinta, não a identidade final do robô.

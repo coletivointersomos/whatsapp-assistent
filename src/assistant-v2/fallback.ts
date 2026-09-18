@@ -6,8 +6,8 @@ import { activeOfKind, lastSessionTrip, parseSessionStart, sessionRecords } from
 
 export const V2_MISSING_ACTION_RETRY =
   "Não consegui registrar isso com segurança. Pode repetir em uma frase?";
-export const V2_GREETING =
-  "Opa, estou aqui. Pode me mandar abastecimento, despesa, viagem ou atualização da rota.";
+export const V2_NEED_TEXT =
+  "Ainda não leio áudio nem foto. Pode escrever o que você quer?";
 
 export function looksOperationalV2(text: string, hasSessionPending: boolean): boolean {
   const raw = text.trim();

@@ -13,8 +13,8 @@ import { buildAssistantV2Context } from "./context.ts";
 import { executeAssistantV2Actions, formatSessionSummary } from "./execute.ts";
 import {
   V2_MISSING_ACTION_RETRY,
+  V2_NEED_TEXT,
   buildV2FallbackActions,
-  looksLikeGreeting,
   looksOperationalV2,
   chatUnavailableReply,
 } from "./fallback.ts";
@@ -76,6 +76,25 @@ export async function runAssistantV2(
   const isAdmin = authorRole === "alana";
   const isDriver = authorRole === "motorista" && isPrincipalDriver(state, conversation.driverId, inbound.authorId);
   const v2Role = isAdmin ? "admin" : isDriver ? "motorista" : "participante";
+  const emit = clock.nluLog;
+
+  const stored: StoredMessage = {
+    ...inbound,
+    authorRole,
+    participantId: inbound.participantId ?? inbound.authorId,
+    processedAt: now.toISOString(),
+  };
+
+  if (!(inbound.text ?? "").trim() && inbound.type !== "texto") {
+    state.messages.push(stored);
+    emit?.("assistant_v2_media_without_text", { type: inbound.type });
+    return {
+      decision: "assisted",
+      duplicate: false,
+      message: stored,
+      replies: [pushReply(state, conversation.id, V2_NEED_TEXT)],
+    };
+  }
 
   const ctx = buildAssistantV2Context({
     state,
@@ -92,15 +111,8 @@ export async function runAssistantV2(
     interpreted = emptyAssistantV2("llm_failed");
   }
 
-  const emit = clock.nluLog;
   emit?.("assistant_v2_response_received", logFields(interpreted));
 
-  const stored: StoredMessage = {
-    ...inbound,
-    authorRole,
-    participantId: inbound.participantId ?? inbound.authorId,
-    processedAt: now.toISOString(),
-  };
   state.messages.push(stored);
 
   const session = sessionRecords(state, conversation, parseSessionStart(clock.assistantV2SessionStartedAt));

@@ -10,13 +10,14 @@ import { chatUnavailableReply, looksLikeGreeting } from "../src/assistant-v2/fal
 const SESSION = "2026-09-17T18:00:00.000Z";
 const NOW = new Date("2026-09-17T19:00:00.000Z");
 
-function msg(partial: Partial<InboundMessage> & Pick<InboundMessage, "externalId" | "text">): InboundMessage {
+function msg(partial: Partial<InboundMessage> & Pick<InboundMessage, "externalId"> & { text?: string }): InboundMessage {
   return {
     conversationId: "conv-joao",
     authorId: "motorista-joao",
     authorRole: "motorista",
     sentAt: NOW.toISOString(),
     type: "texto",
+    text: "",
     ...partial,
   };
 }
@@ -171,6 +172,24 @@ describe("assistant v2 session runtime", () => {
     );
     assert.doesNotMatch(out.replies[0]?.text ?? "", /João/i);
     assert.match(out.replies[0]?.text ?? "", /receita|farinha/i);
+  });
+
+  it("asks for written text instead of guessing when the inbound is audio", async () => {
+    let called = false;
+    const out = await run(
+      seedState(),
+      msg({ externalId: "aud1", type: "audio_info", text: "" }),
+      {
+        name: "should-not-run",
+        interpret: () => {
+          called = true;
+          return { message: "Olá! Como posso ajudar você hoje?", actions: [], confidence: 0.9 };
+        },
+      },
+    );
+    assert.equal(called, false);
+    assert.match(out.replies[0]?.text ?? "", /áudio|escrever/i);
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /Olá! Como posso ajudar/i);
   });
 
   it("answers identity when the LLM HTTP call fails", async () => {

@@ -4,7 +4,7 @@ import { createOpenWaSender, disabledSender } from "../adapters/hermes/openwaSen
 import { seedState } from "../config/seed.ts";
 import { loadState, saveState } from "../persistence/store.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason } from "../sheets/config.ts";
-import { writeStateToGoogleSheet } from "../sheets/write.ts";
+import { writeSessionToSheet } from "../sheets/write.ts";
 import { describeSendMode, type RuntimeConfig } from "./config.ts";
 import { verifyWebhookHmac, verifyResumeAuth } from "./hmac.ts";
 import { handleInboundPayload } from "./pipeline.ts";
@@ -45,7 +45,7 @@ async function persistState(runtime: RuntimeConfig, state: ReturnType<typeof see
     if (sheets.enabled) log("sheets_sync_skipped", { reason: skip });
     return;
   }
-  const synced = await writeStateToGoogleSheet({ state, config: sheets });
+  const synced = await writeSessionToSheet({ state, config: sheets });
   if (synced.ok) log("sheets_sync_ok", { rowCount: synced.rowCount });
   else log("sheets_sync_failed", { reason: synced.reason });
 }
