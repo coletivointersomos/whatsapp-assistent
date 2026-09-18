@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { extractComplement, extractFromText } from "../src/extraction/extract.ts";
+import { operationalRecordId } from "../src/domain/recordId.ts";
 
 const sentAt = new Date("2026-09-09T12:00:00.000Z");
 
@@ -20,6 +21,12 @@ describe("extractFromText", () => {
     const b = extractFromText("abasteci 150 litros, deu 980, assinada", sentAt);
     assert.equal(b?.abastecimento?.payment, "assinada");
     assert.notEqual(b?.abastecimento?.payment, "pago");
+
+    const c = extractFromText("nessa viagem eu abasteci 280 no posto sao joao, pagamento no pix", sentAt);
+    assert.equal(c?.kind, "abastecimento");
+    assert.equal(c?.abastecimento?.liters, 280);
+    assert.equal(c?.abastecimento?.payment, "pix");
+    assert.match(String(c?.abastecimento?.place ?? ""), /sao joao/i);
   });
 
   it("reads an expense", () => {
@@ -155,5 +162,15 @@ describe("extractComplement", () => {
     assert.notEqual(ate?.viagem?.material?.toLowerCase(), "curitiba");
     assert.equal(ate?.viagem?.quantity, 50);
     assert.equal(ate?.viagem?.unit, "m³");
+  });
+});
+
+describe("operationalRecordId", () => {
+  it("uses the OpenWA message serial, not the group jid", () => {
+    assert.equal(
+      operationalRecordId("false_120363410827283923@g.us_3EB09AEBB85F480CEC7715_173710002630752@lid"),
+      "reg-3EB09AEBB85F480CEC7715",
+    );
+    assert.equal(operationalRecordId("t1"), "reg-t1");
   });
 });

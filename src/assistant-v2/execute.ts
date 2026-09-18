@@ -12,6 +12,7 @@ import type {
   OperationalStatusUpdate,
   ProcessDecision,
 } from "../domain/types.ts";
+import { extractComplement } from "../extraction/extract.ts";
 import { operationalRecordId } from "../domain/recordId.ts";
 import { normalizeCargoUnit } from "../domain/units.ts";
 import type { AssistantV2Action, AssistantV2RecordType, AssistantV2Response } from "./types.ts";
@@ -60,13 +61,21 @@ function asScalarMap(fields: Record<string, unknown>): Record<string, string | n
 
 function mergeFields(
   kind: AssistantV2RecordType,
-  _text: string,
+  text: string,
   sentAt: Date,
   llmFields: Record<string, unknown>,
   vehicleHint?: string,
 ): Record<string, string | number> {
   const suggested = asScalarMap(llmFields);
-  if (kind === "viagem" && suggested.date === undefined) suggested.date = dayIso(sentAt);
+  const extracted = extractComplement(kind, text, sentAt, vehicleHint);
+  const fromText = extracted.abastecimento ?? extracted.despesa ?? extracted.viagem ?? {};
+  for (const [key, value] of Object.entries(fromText)) {
+    if (value === undefined || value === "") continue;
+    if (suggested[key] === undefined || suggested[key] === "") suggested[key] = value;
+  }
+  if ((kind === "viagem" || kind === "abastecimento") && suggested.date === undefined) {
+    suggested.date = dayIso(sentAt);
+  }
   if (vehicleHint && suggested.vehicle === undefined) suggested.vehicle = vehicleHint;
   if (typeof suggested.unit === "string") {
     const unit = normalizeCargoUnit(suggested.unit);

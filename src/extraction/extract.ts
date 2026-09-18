@@ -126,6 +126,13 @@ function extractAbastecimento(text: string, sentAt: Date, vehicle?: string) {
   if (date) fields.date = date;
   if (liters) fields.liters = parseNumber(liters[1]);
   if (total) fields.totalBrl = parseNumber(total[1]);
+  if (fields.liters === undefined && fields.totalBrl === undefined) {
+    const bare = text.match(/\babastec\w*\s+(\d+(?:[.,]\d+)?)\b/i);
+    if (bare) {
+      if (/\b(reais|r\$|deu)\b/i.test(text)) fields.totalBrl = parseNumber(bare[1]);
+      else fields.liters = parseNumber(bare[1]);
+    }
+  }
   const place = extractPlace(text);
   if (place) fields.place = place;
   const payment = paymentToken(text);
