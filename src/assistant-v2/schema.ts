@@ -42,6 +42,27 @@ function asFields(value: unknown): Record<string, unknown> {
   return out;
 }
 
+function actionFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const nested = asFields(obj.fields);
+  const top = asFields(obj);
+  const skip = new Set([
+    "type",
+    "recordType",
+    "record_type",
+    "recordId",
+    "record_id",
+    "fields",
+    "missingFields",
+    "missing_fields",
+  ]);
+  const out: Record<string, unknown> = { ...nested };
+  for (const [key, value] of Object.entries(top)) {
+    if (skip.has(key) || out[key] !== undefined) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 function asRecordType(value: unknown): AssistantV2RecordType | undefined {
   const type = asString(value);
   if (type === "abastecimento" || type === "despesa" || type === "viagem") return type;
@@ -55,14 +76,14 @@ function parseAction(raw: unknown): AssistantV2Action | undefined {
   if (type === "record.create") {
     const recordType = asRecordType(obj.recordType ?? obj.record_type);
     if (!recordType) return undefined;
-    return { type, recordType, fields: asFields(obj.fields) };
+    return { type, recordType, fields: actionFields(obj) };
   }
   if (type === "record.update") {
     return {
       type,
       recordId: asString(obj.recordId) ?? asString(obj.record_id),
       recordType: asRecordType(obj.recordType ?? obj.record_type),
-      fields: asFields(obj.fields),
+      fields: actionFields(obj),
     };
   }
   if (type === "status.create") {

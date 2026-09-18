@@ -75,6 +75,11 @@ function mergeFields(
   return suggested;
 }
 
+function looksLikePlace(value: string, ...places: Array<string | number | undefined>): boolean {
+  const n = value.trim().toLowerCase();
+  return places.some((place) => typeof place === "string" && place.trim().toLowerCase() === n);
+}
+
 function applyInto(record: OperationalRecord, incoming: Record<string, string | number>) {
   const bucket =
     record.kind === "abastecimento"
@@ -82,10 +87,19 @@ function applyInto(record: OperationalRecord, incoming: Record<string, string | 
       : record.kind === "despesa"
         ? (record.despesa ??= {})
         : (record.viagem ??= {});
-  for (const [key, value] of Object.entries(incoming)) {
+  const map = bucket as Record<string, string | number>;
+  const keys = Object.keys(incoming).sort((a, b) => Number(a === "material") - Number(b === "material"));
+  for (const key of keys) {
+    const value = incoming[key];
     if (value === undefined || value === "") continue;
-    const current = (bucket as Record<string, string | number>)[key];
-    if (current === undefined || current === "") (bucket as Record<string, string | number>)[key] = value;
+    const current = map[key];
+    if (current === undefined || current === "") {
+      map[key] = value;
+      continue;
+    }
+    if (key === "material" && looksLikePlace(String(current), map.origin, map.destination, incoming.origin, incoming.destination)) {
+      map[key] = value;
+    }
   }
   record.missing = missingOf(record);
   record.status = record.missing.length === 0 ? "completo" : "incompleto";
@@ -215,6 +229,9 @@ export function executeAssistantV2Actions(input: {
       }
       const fields = mergeFields(target.kind, text, sentAt, action.fields, vehicleHint);
       applyInto(target, fields);
+      if (target.id.includes("@") || target.id.includes("false_")) {
+        target.id = operationalRecordId(inbound.externalId);
+      }
       if (!target.sourceMessageIds.includes(inbound.externalId)) target.sourceMessageIds.push(inbound.externalId);
       record = target;
       decision = target.status === "completo" ? "record_created" : "record_incomplete";

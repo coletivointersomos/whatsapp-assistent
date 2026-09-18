@@ -84,9 +84,9 @@ export function composeV2Reply(input: {
   const spoken = llmMessage.trim();
   if (sensitiveBlocked) return BLOCKED_REPLY;
   if (outcome.summary?.trim()) return outcome.summary.trim();
-  if (spoken) return spoken;
-  if (outcome.record?.status === "completo") return completeRecordReply(outcome.record);
+  if (outcome.record?.status === "completo") return spoken || completeRecordReply(outcome.record);
   if (outcome.record?.status === "incompleto") return incompleteRecordReply(outcome.record);
+  if (spoken) return spoken;
   if (outcome.statusCreated) return statusReply(state, conversation, sessionStartedAt, llmMessage);
   if (outcome.summary?.trim()) return outcome.summary.trim();
   return "";

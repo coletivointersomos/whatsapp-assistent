@@ -5,6 +5,7 @@ import type { AppState, InboundMessage } from "../src/domain/types.ts";
 import { processMessageAsync } from "../src/engine/process.ts";
 import type { AssistantV2Context, AssistantV2Provider, AssistantV2Response } from "../src/assistant-v2/types.ts";
 import { emptyAssistantV2 } from "../src/assistant-v2/types.ts";
+import { parseAssistantV2Response } from "../src/assistant-v2/schema.ts";
 import { chatUnavailableReply, looksLikeGreeting } from "../src/assistant-v2/fallback.ts";
 
 const SESSION = "2026-09-17T18:00:00.000Z";
@@ -512,5 +513,55 @@ describe("assistant v2 session runtime", () => {
     assert.notEqual(out.record?.viagem?.material?.toLowerCase(), "curitiba");
     assert.match(out.replies[0]?.text ?? "", /Curitiba/i);
     assert.doesNotMatch(out.replies[0]?.text ?? "", /Não consegui registrar/i);
+  });
+
+  it("applies top-level trip fields on record.update and fixes Curitiba stored as material", async () => {
+    const state = seedState();
+    state.messages.push({
+      externalId: "old-openwa",
+      conversationId: "conv-joao",
+      authorId: "motorista-joao",
+      authorRole: "motorista",
+      sentAt: NOW.toISOString(),
+      type: "texto",
+      text: "viagem",
+      processedAt: NOW.toISOString(),
+    });
+    state.records.push({
+      id: "reg-false_120363410827283923@g.us_3EB09AEBB85F480CEC7715_173710002630752@lid",
+      kind: "viagem",
+      driverId: "motorista-joao",
+      status: "incompleto",
+      sourceMessageIds: ["old-openwa"],
+      missing: ["origin", "destination"],
+      viagem: { material: "curitiba", quantity: 50, unit: "m³", date: "2026-09-18" },
+    });
+    const parsed = parseAssistantV2Response({
+      message: "Viagem registrada: Araranguá → Curitiba, 50 m³ de feijão.",
+      actions: [
+        {
+          type: "record.update",
+          recordId: "reg-false_120363410827283923@g.us_3EB09AEBB85F480CEC7715_173710002630752@lid",
+          origin: "Araranguá",
+          destination: "Curitiba",
+          material: "feijão",
+          quantity: 50,
+          unit: "m³",
+        },
+      ],
+      confidence: 0.95,
+    });
+    const out = await run(
+      state,
+      msg({ externalId: "3EB09AEBB85F480CEC7715", text: "alo, viagem de ararangua até curitiba, 50 m3 feijao" }),
+      script(() => parsed),
+    );
+    assert.equal(parsed.actions[0] && "fields" in parsed.actions[0] ? parsed.actions[0].fields.material : "", "feijão");
+    assert.equal(out.record?.status, "completo");
+    assert.equal(out.record?.viagem?.origin?.toLowerCase(), "araranguá");
+    assert.equal(out.record?.viagem?.destination?.toLowerCase(), "curitiba");
+    assert.equal(out.record?.viagem?.material?.toLowerCase(), "feijão");
+    assert.doesNotMatch(out.record?.id ?? "", /@/);
+    assert.match(out.replies[0]?.text ?? "", /feijão/i);
   });
 });
