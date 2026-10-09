@@ -1,14 +1,10 @@
 import { normalizeInbound } from "../adapters/inbound.ts";
 import { isPrincipalDriver, resolveAuthorRole } from "../domain/identity.ts";
-import type {
-  AppState,
-  BotReply,
-  InboundMessage,
-  ProcessResult,
-  StoredMessage,
-} from "../domain/types.ts";
+import type { AppState, BotReply, InboundMessage, ProcessResult } from "../domain/types.ts";
 import { looksLikeAdminCommand } from "../extraction/extract.ts";
 import { previewReply } from "../nlu/audit.ts";
+import { nearbyCaption } from "./nearbyCaption.ts";
+import { storedWithoutMedia } from "../persistence/stripMedia.ts";
 import { buildAssistantV2Context } from "./context.ts";
 import { executeAssistantV2Actions, formatSessionSummary } from "./execute.ts";
 import {
@@ -79,14 +75,14 @@ export async function runAssistantV2(
   const v2Role = isAdmin ? "admin" : isDriver ? "motorista" : "participante";
   const emit = clock.nluLog;
 
-  const stored: StoredMessage = {
-    ...inbound,
-    authorRole,
-    participantId: inbound.participantId ?? inbound.authorId,
-    processedAt: now.toISOString(),
-  };
+  const caption = nearbyCaption(state, inbound);
+  const stored = storedWithoutMedia(inbound, { authorRole, processedAt: now.toISOString() });
+  if (caption && !(stored.text ?? "").trim()) stored.text = caption;
 
-  if (!(inbound.text ?? "").trim() && inbound.type !== "texto") {
+  const canSee =
+    inbound.type === "texto" ||
+    Boolean((inbound.text ?? "").trim() || caption || inbound.media?.base64);
+  if (!canSee && inbound.type !== "texto") {
     state.messages.push(stored);
     emit?.("assistant_v2_media_without_text", { type: inbound.type });
     return {
@@ -96,6 +92,8 @@ export async function runAssistantV2(
       replies: [pushReply(state, conversation.id, V2_NEED_TEXT)],
     };
   }
+  if (inbound.media?.base64) emit?.("assistant_v2_image_ready", { source: inbound.media.source, caption: Boolean(caption) });
+  else if (inbound.type !== "texto" && caption) emit?.("assistant_v2_caption_without_bytes", { type: inbound.type });
 
   const ctx = buildAssistantV2Context({
     state,
@@ -103,11 +101,17 @@ export async function runAssistantV2(
     conversation,
     authorRole: v2Role,
     sessionStartedAt: clock.assistantV2SessionStartedAt,
+    caption,
   });
 
+  const imageOps = Boolean(inbound.media?.base64);
   let interpreted: AssistantV2Response = emptyAssistantV2("no_provider");
   try {
-    if (clock.assistantV2) interpreted = await Promise.resolve(clock.assistantV2.interpret(ctx));
+    if (clock.assistantV2) {
+      interpreted = await Promise.resolve(
+        clock.assistantV2.interpret(imageOps ? { ...ctx, persistHint: "emit_record_actions" } : ctx),
+      );
+    }
   } catch {
     interpreted = emptyAssistantV2("llm_failed");
   }
@@ -120,10 +124,12 @@ export async function runAssistantV2(
   const hasPending = Boolean(
     activeOfKind(session, "viagem") || activeOfKind(session, "despesa") || activeOfKind(session, "abastecimento"),
   );
-  const operational = looksOperationalV2(inbound.text ?? "", hasPending);
+  const captionText = caption || inbound.text || "";
+  const textOps = looksOperationalV2(captionText, hasPending);
+  const inboundForExtract = { ...inbound, text: captionText };
   let response = isUsableAssistantV2(interpreted) ? interpreted : emptyAssistantV2(interpreted.notes ?? "unusable");
 
-  if (operational && response.actions.length === 0 && clock.assistantV2) {
+  if ((textOps || imageOps) && response.actions.length === 0 && clock.assistantV2) {
     const hardFail =
       interpreted.notes === "llm_timeout" ||
       interpreted.notes === "llm_failed" ||
@@ -145,10 +151,10 @@ export async function runAssistantV2(
     }
   }
 
-  if (operational && response.actions.length === 0) {
+  if (textOps && response.actions.length === 0) {
     const fallbackActions = buildV2FallbackActions({
       state,
-      inbound,
+      inbound: inboundForExtract,
       conversation,
       sessionStartedAt: clock.assistantV2SessionStartedAt,
     });
@@ -164,7 +170,7 @@ export async function runAssistantV2(
   const vehicleHint = state.drivers.find((d) => d.id === conversation.driverId)?.vehicleHint;
   let outcome = executeAssistantV2Actions({
     state,
-    inbound,
+    inbound: inboundForExtract,
     conversation,
     response,
     isAdmin,
@@ -180,10 +186,10 @@ export async function runAssistantV2(
       item.type === "sheet.change.request" ||
       item.type === "ask_driver.request",
   );
-  if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked) {
+  if (textOps && !outcome.record && !outcome.statusCreated && !sensitiveBlocked) {
     const fallbackActions = buildV2FallbackActions({
       state,
-      inbound,
+      inbound: inboundForExtract,
       conversation,
       sessionStartedAt: clock.assistantV2SessionStartedAt,
     });
@@ -194,7 +200,7 @@ export async function runAssistantV2(
       });
       outcome = executeAssistantV2Actions({
         state,
-        inbound,
+        inbound: inboundForExtract,
         conversation,
         response: { ...response, actions: fallbackActions, confidence: 0.7 },
         isAdmin,
@@ -221,7 +227,7 @@ export async function runAssistantV2(
     sessionStartedAt: clock.assistantV2SessionStartedAt,
   });
 
-  if (operational && !outcome.record && !outcome.statusCreated && !sensitiveBlocked && !interpreted.message.trim()) {
+  if (textOps && !outcome.record && !outcome.statusCreated && !sensitiveBlocked && !interpreted.message.trim()) {
     message = V2_MISSING_ACTION_RETRY;
   } else if (!message.trim()) {
     message = chatUnavailableReply(inbound.text ?? "", interpreted.notes);

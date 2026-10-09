@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { applyChannelConfig } from "../src/adapters/hermes/config.ts";
 import { normalizeOpenWaEnvelope } from "../src/adapters/hermes/normalize.ts";
+import {
+  DEFAULT_OPENWA_MEDIA_PATH,
+  fetchOpenWaImage,
+  resolveOpenWaMediaUrls,
+} from "../src/adapters/hermes/openwaMedia.ts";
 import type { ChannelConfig, OpenWaEnvelope } from "../src/adapters/hermes/types.ts";
 import { seedState } from "../src/config/seed.ts";
 import { processMessage } from "../src/engine/process.ts";
@@ -66,7 +71,7 @@ describe("hermes/openwa adapter", () => {
         type: "image",
         caption: "comprovante",
         timestamp: 1757520000,
-        media: { mimetype: "image/jpeg" },
+        media: { mimetype: "image/jpeg", data: `data:image/jpeg;base64,${"A".repeat(120)}` },
       }),
       channel,
     );
@@ -74,6 +79,8 @@ describe("hermes/openwa adapter", () => {
     if (image.ok) {
       assert.equal(image.inbound.type, "anexo_comprovante");
       assert.equal(image.inbound.attachmentRef, "image/jpeg");
+      assert.equal(image.inbound.media?.source, "webhook");
+      assert.ok(image.inbound.media?.base64);
     }
 
     const audio = normalizeOpenWaEnvelope(
@@ -252,5 +259,38 @@ describe("hermes/openwa adapter", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.inbound.authorRole, "desconhecido");
+  });
+
+  it("builds OpenWA media GET with chatId and messageId", () => {
+    const urls = resolveOpenWaMediaUrls({
+      baseUrl: "http://openwa-api:2785",
+      sessionId: "sessao-lab",
+      chatId: "grupo-lab-teste@g.us",
+      messageId: "false_grupo_AAA",
+      mediaPath: DEFAULT_OPENWA_MEDIA_PATH,
+    });
+    assert.match(urls[0] ?? "", /messages\/grupo-lab-teste%40g\.us\/false_grupo_AAA\/media/);
+  });
+
+  it("fetches image bytes from the OpenWA media route", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64");
+    const seen: string[] = [];
+    const media = await fetchOpenWaImage({
+      baseUrl: "http://openwa-api:2785",
+      apiKey: "k",
+      apiKeyHeader: "X-Api-Key",
+      sessionId: "sessao-lab",
+      chatId: "grupo-lab-teste@g.us",
+      messageId: "img-9",
+      mediaPath: DEFAULT_OPENWA_MEDIA_PATH,
+      fetchImpl: async (url, init) => {
+        seen.push(String(url));
+        assert.equal((init as RequestInit)?.method, "GET");
+        return new Response(Buffer.from(jpeg, "base64"), { status: 200, headers: { "content-type": "image/jpeg" } });
+      },
+    });
+    assert.equal(media?.source, "openwa");
+    assert.ok(media?.base64);
+    assert.match(seen[0] ?? "", /img-9\/media/);
   });
 });

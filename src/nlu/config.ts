@@ -7,6 +7,8 @@ export type NluRuntimeConfig = {
   timeoutMs: number;
   maxTokens: number;
   jsonResponseFormat: boolean;
+  visionEnabled: boolean;
+  visionModel: string;
 };
 
 export function loadNluConfig(env: NodeJS.Dict<string> = process.env): NluRuntimeConfig {
@@ -24,6 +26,8 @@ export function loadNluConfig(env: NodeJS.Dict<string> = process.env): NluRuntim
     timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 20000,
     maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.min(maxTokens, 4096) : 512,
     jsonResponseFormat: env.LLM_NLU_JSON_OBJECT !== "false",
+    visionEnabled: env.LLM_VISION_ENABLED === "true",
+    visionModel: env.LLM_VISION_MODEL?.trim() || env.LLM_NLU_MODEL?.trim() || "",
   };
 }
 

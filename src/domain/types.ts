@@ -40,6 +40,8 @@ export type InboundMessage = {
   type: MessageType;
   text?: string;
   attachmentRef?: string;
+  /** Bytes da foto em memória. Não gravar no store. */
+  media?: { mime: string; base64: string; source?: "webhook" | "openwa" };
   raw?: unknown;
 };
 

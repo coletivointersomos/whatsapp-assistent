@@ -19,6 +19,8 @@ export function looksOperationalV2(text: string, hasSessionPending: boolean): bo
   if (/\bm3\b/i.test(raw) || /m³/i.test(raw)) return true;
   if (CARGO_MATERIAL_QTY_RE.test(raw) || CARGO_QTY_UNIT_RE.test(raw)) return true;
   if (/\b(parei|cheguei|atrasou)\b/i.test(raw)) return true;
+  if (/\bsacos?\b/i.test(raw) || (/\bpeso\b/i.test(raw) && /\bdivid/i.test(raw))) return true;
+  if (/\b\d+\s*reais?\s*(cada|por)\b/i.test(raw)) return true;
   if (hasSessionPending && /^(ontem|hoje|foi ontem|foi hoje)\b/i.test(raw)) return true;
   if (hasSessionPending && /\b\d+([.,]\d+)?\b/.test(raw) && /\b(pix|pago|assinada)\b/i.test(raw)) return true;
   return false;

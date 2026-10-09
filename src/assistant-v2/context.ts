@@ -13,10 +13,11 @@ import {
 
 export function buildAssistantV2Context(input: {
   state: AppState;
-  inbound: Pick<InboundMessage, "text" | "conversationId">;
+  inbound: Pick<InboundMessage, "text" | "conversationId" | "media">;
   conversation: Conversation;
   authorRole: "admin" | "motorista" | "participante";
   sessionStartedAt?: string;
+  caption?: string;
 }): AssistantV2Context {
   const sessionStartedAtMs = parseSessionStart(input.sessionStartedAt);
   const records = sessionRecords(input.state, input.conversation, sessionStartedAtMs);
@@ -24,7 +25,9 @@ export function buildAssistantV2Context(input: {
   const activeExpense = activeOfKind(records, "despesa");
   const activeFuel = activeOfKind(records, "abastecimento");
   const hasPending = Boolean(activeTrip || activeExpense || activeFuel);
-  const operational = looksOperationalV2(input.inbound.text ?? "", hasPending);
+  const text = (input.caption ?? input.inbound.text ?? "").trim();
+  const hasImage = Boolean(input.inbound.media?.base64);
+  const operational = looksOperationalV2(text, hasPending) || hasImage;
   const driver = input.state.drivers.find((item) => item.id === input.conversation.driverId);
   const recent = operational
     ? sessionMessages(input.state, input.conversation, sessionStartedAtMs)
@@ -68,10 +71,15 @@ export function buildAssistantV2Context(input: {
       "conversar sobre a mensagem atual, qualquer assunto",
       "não continuar assunto antigo se a pessoa mudou de tema",
       "registrar viagem/despesa/abastecimento/status só quando a mensagem atual for operacional",
+      ...(hasImage ? ["ler foto de comprovante, romaneio e caderno e extrair dados"] : []),
     ],
     allowedActions: ["record.create", "record.update", "status.create", "summary.query"],
     blockedActions: ["broadcast.request", "sheet.change.request", "ask_driver.request"],
-    message: input.inbound.text ?? "",
-    currentUserMessage: input.inbound.text ?? "",
+    message: text,
+    currentUserMessage: text,
+    hasImage,
+    imageDataUrl: hasImage
+      ? `data:${input.inbound.media?.mime ?? "image/jpeg"};base64,${input.inbound.media?.base64}`
+      : undefined,
   };
 }

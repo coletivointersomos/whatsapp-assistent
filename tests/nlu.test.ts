@@ -334,6 +334,8 @@ describe("nlu operacional assistant", () => {
       timeoutMs: 50,
       maxTokens: 512,
       jsonResponseFormat: true,
+      visionEnabled: false,
+      visionModel: "",
     });
     const result = await provider.interpret(emptyCtx({ message: "oi", authorRole: "alana", isAdmin: true }));
     assert.equal(result.intent, "unknown");

@@ -1,5 +1,6 @@
 import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
+import { fetchOpenWaImage } from "../adapters/hermes/openwaMedia.ts";
 import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import { createAssistantProvider } from "../assistant/provider.ts";
@@ -50,9 +51,29 @@ export async function handleInboundPayload(input: {
     };
   }
 
-  const inbound = normalized.inbound;
+  let inbound = normalized.inbound;
+  if (inbound.type === "anexo_comprovante" && !inbound.media?.base64 && runtime.openwaBaseUrl) {
+    const fetched = await fetchOpenWaImage({
+      baseUrl: runtime.openwaBaseUrl,
+      apiKey: runtime.openwaApiKey,
+      apiKeyHeader: runtime.openwaApiKeyHeader,
+      sessionId: runtime.sessionId,
+      messageId: inbound.externalId,
+      chatId: inbound.conversationId,
+      mediaPath: runtime.openwaMediaPath,
+    });
+    if (fetched) {
+      inbound = { ...inbound, media: fetched };
+      log("vision_media_fetched", { source: fetched.source });
+    } else {
+      log("vision_media_missing", { type: inbound.type });
+    }
+  }
   const nluConfig = loadNluConfig(process.env);
   const v2Config = loadAssistantV2Config(process.env);
+  if (inbound.media?.base64) {
+    log(nluConfig.visionEnabled ? "vision_armed" : "vision_disabled", { mime: inbound.media.mime });
+  }
   const httpHooks = {
     onHttp: (info: {
       status: number;
@@ -62,6 +83,7 @@ export async function handleInboundPayload(input: {
       path: string;
       usedResponseFormat: boolean;
       bodyPreview: string;
+      vision?: boolean;
     }) =>
       log("nlu_http", {
         status: info.status,
@@ -70,6 +92,7 @@ export async function handleInboundPayload(input: {
         host: info.host,
         path: info.path,
         usedResponseFormat: info.usedResponseFormat,
+        vision: info.vision,
         bodyPreview: info.bodyPreview,
       }),
   };

@@ -1,6 +1,7 @@
 import type { InboundMessage, MessageType } from "../../domain/types.ts";
 import { jidInList } from "../../domain/identity.ts";
 import { isGroupJid, resolveChannelAuthorRole } from "./identity.ts";
+import { mediaFromWebhook } from "./openwaMedia.ts";
 import type { ChannelConfig, OpenWaEnvelope, OpenWaMessageData } from "./types.ts";
 
 export type NormalizeOk = { ok: true; inbound: InboundMessage };
@@ -106,6 +107,7 @@ export function normalizeOpenWaEnvelope(
     type,
     text,
     attachmentRef: type === "texto" ? undefined : mimetype || type,
+    media: type === "anexo_comprovante" ? mediaFromWebhook(data, data.type) : undefined,
     raw: envelope,
   };
   return { ok: true, inbound };

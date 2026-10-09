@@ -26,6 +26,7 @@ export type RuntimeConfig = {
   openwaApiKey: string;
   openwaApiKeyHeader: string;
   openwaSendPath: string;
+  openwaMediaPath: string;
   port: number;
   storePath: string;
   channelFile?: string;
@@ -116,6 +117,8 @@ export function loadRuntimeConfig(
     openwaApiKey: env.OPENWA_API_KEY ?? "",
     openwaApiKeyHeader: env.OPENWA_API_KEY_HEADER?.trim() || "X-Api-Key",
     openwaSendPath: env.OPENWA_SEND_PATH?.trim() || "/api/sessions/{sessionId}/messages/text",
+    openwaMediaPath:
+      env.OPENWA_MEDIA_PATH?.trim() || "/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media",
     port: Number(env.PORT || 8791),
     storePath: env.STORE_PATH?.trim() || "data/store.json",
     channelFile,

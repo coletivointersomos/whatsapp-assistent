@@ -44,6 +44,7 @@ function runtime(partial: Partial<RuntimeConfig> = {}): RuntimeConfig {
     openwaApiKey: "",
     openwaApiKeyHeader: "X-Api-Key",
     openwaSendPath: "/api/sessions/{sessionId}/messages/text",
+    openwaMediaPath: "/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media",
     port: 8791,
     storePath: "data/store.json",
     ...partial,

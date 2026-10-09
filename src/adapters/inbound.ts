@@ -14,6 +14,7 @@ export function normalizeInbound(input: InboundMessage): InboundMessage {
     type: input.type,
     text: input.text,
     attachmentRef: input.attachmentRef,
+    media: input.media,
     raw: input.raw ?? input,
   };
 }

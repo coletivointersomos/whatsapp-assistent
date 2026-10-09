@@ -12,20 +12,46 @@ import { emptyAssistantV2, type AssistantV2Context, type AssistantV2Provider } f
 
 type FetchLike = typeof fetch;
 
+export function buildAssistantV2Messages(
+  context: AssistantV2Context,
+  withImage: boolean,
+): Array<{ role: string; content: unknown }> {
+  const { imageDataUrl, ...rest } = context;
+  const text = buildAssistantV2UserPayload(rest);
+  if (withImage && imageDataUrl) {
+    return [
+      { role: "system", content: ASSISTANT_V2_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "text", text },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ],
+      },
+    ];
+  }
+  return [
+    { role: "system", content: ASSISTANT_V2_SYSTEM_PROMPT },
+    { role: "user", content: text },
+  ];
+}
+
 function completionBody(
   config: NluRuntimeConfig,
   context: AssistantV2Context,
   withFormat: boolean,
   thinkingOff: boolean,
+  withImage: boolean,
 ) {
+  const model =
+    withImage && (config.visionModel || config.model)
+      ? config.visionModel || config.model
+      : config.model || "assistant-v2";
   const payload: Record<string, unknown> = {
-    model: config.model || "assistant-v2",
+    model,
     temperature: 0.2,
     max_tokens: Math.min(4096, Math.max(config.maxTokens, 2048)),
-    messages: [
-      { role: "system", content: ASSISTANT_V2_SYSTEM_PROMPT },
-      { role: "user", content: buildAssistantV2UserPayload(context) },
-    ],
+    messages: buildAssistantV2Messages(context, withImage),
   };
   if (thinkingOff) {
     payload.enable_thinking = false;
@@ -57,16 +83,18 @@ export function createAssistantV2Provider(
       const url = resolveChatCompletionsUrl(config.baseUrl);
       if (!url) return emptyAssistantV2("llm_failed");
       const { host, path } = urlHostPath(url);
+      const wantImage = Boolean(config.visionEnabled && context.imageDataUrl);
+      const timeoutMs = wantImage ? Math.max(config.timeoutMs, 45_000) : config.timeoutMs;
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), config.timeoutMs);
-      const post = async (withFormat: boolean, thinkingOff: boolean) => {
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      const post = async (withFormat: boolean, thinkingOff: boolean, withImage: boolean) => {
         const response = await fetchImpl(url, {
           method: "POST",
           headers: {
             "content-type": "application/json",
             authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify(completionBody(config, context, withFormat, thinkingOff)),
+          body: JSON.stringify(completionBody(config, context, withFormat, thinkingOff, withImage)),
           signal: ctrl.signal,
         });
         const raw = await readBody(response);
@@ -78,14 +106,18 @@ export function createAssistantV2Provider(
           path,
           bodyPreview: maskHttpSnippet(config.apiKey ? raw.split(config.apiKey).join("[key]") : raw),
           usedResponseFormat: withFormat && config.jsonResponseFormat,
+          vision: withImage,
         };
         hooks.onHttp?.(info);
         return { response, raw, withFormat };
       };
       try {
-        let { response, raw, withFormat } = await post(true, true);
+        let { response, raw, withFormat } = await post(true, true, wantImage);
         if (!response.ok && response.status === 400 && /enable_thinking|chat_template/i.test(raw)) {
-          ({ response, raw, withFormat } = await post(true, false));
+          ({ response, raw, withFormat } = await post(true, false, wantImage));
+        }
+        if (!response.ok && response.status === 400 && wantImage) {
+          ({ response, raw, withFormat } = await post(true, false, false));
         }
         if (
           !response.ok &&
@@ -94,7 +126,7 @@ export function createAssistantV2Provider(
           config.jsonResponseFormat &&
           /response_format/i.test(raw)
         ) {
-          ({ response, raw, withFormat } = await post(false, false));
+          ({ response, raw, withFormat } = await post(false, false, wantImage && Boolean(context.imageDataUrl)));
         }
         if (!response.ok) return emptyAssistantV2(`llm_http:${response.status}`);
         let parsed: unknown;

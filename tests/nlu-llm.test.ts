@@ -37,6 +37,8 @@ function llmCfg() {
     timeoutMs: 2000,
     maxTokens: 512,
     jsonResponseFormat: true,
+    visionEnabled: false,
+    visionModel: "",
   };
 }
 

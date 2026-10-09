@@ -6,7 +6,9 @@ import { processMessageAsync } from "../src/engine/process.ts";
 import type { AssistantV2Context, AssistantV2Provider, AssistantV2Response } from "../src/assistant-v2/types.ts";
 import { emptyAssistantV2 } from "../src/assistant-v2/types.ts";
 import { parseAssistantV2Response } from "../src/assistant-v2/schema.ts";
-import { chatUnavailableReply, looksLikeGreeting } from "../src/assistant-v2/fallback.ts";
+import { chatUnavailableReply, looksLikeGreeting, looksOperationalV2 } from "../src/assistant-v2/fallback.ts";
+import { nearbyCaption } from "../src/assistant-v2/nearbyCaption.ts";
+import { buildAssistantV2Messages } from "../src/assistant-v2/provider.ts";
 
 const SESSION = "2026-09-17T18:00:00.000Z";
 const NOW = new Date("2026-09-17T19:00:00.000Z");
@@ -563,5 +565,75 @@ describe("assistant v2 session runtime", () => {
     assert.equal(out.record?.viagem?.material?.toLowerCase(), "feijão");
     assert.doesNotMatch(out.record?.id ?? "", /@/);
     assert.match(out.replies[0]?.text ?? "", /feijão/i);
+  });
+});
+
+describe("assistant v2 image + caption", () => {
+  it("treats sacks/weight copy as operational", () => {
+    assert.equal(looksOperationalV2("esse peso divide por 60 dai a quantidade de sacos no valor de 4 reais cada", false), true);
+  });
+
+  it("reuses the recent caption when the photo has no text", () => {
+    const state = seedState();
+    state.messages.push({
+      ...msg({ externalId: "cap-1", text: "esse peso divide por 60 dai a quantidade de sacos Transportados no valor de 4 reais cada" }),
+      processedAt: NOW.toISOString(),
+    });
+    const caption = nearbyCaption(
+      state,
+      msg({
+        externalId: "img-1",
+        type: "anexo_comprovante",
+        text: "",
+        sentAt: new Date(NOW.getTime() + 1000).toISOString(),
+      }),
+    );
+    assert.match(caption, /sacos/i);
+  });
+
+  it("does not ask for text when the image bytes are present", async () => {
+    const state = seedState();
+    const logs: Array<{ event: string }> = [];
+    const out = await run(
+      state,
+      msg({
+        externalId: "img-bytes",
+        type: "anexo_comprovante",
+        text: "",
+        media: { mime: "image/jpeg", base64: "aaa", source: "webhook" },
+      }),
+      script((ctx) => {
+        assert.equal(ctx.hasImage, true);
+        assert.equal(ctx.persistHint, "emit_record_actions");
+        return { message: "vi o comprovante", actions: [], confidence: 0.9 };
+      }),
+      logs,
+    );
+    assert.doesNotMatch(out.replies[0]?.text ?? "", /não leio/i);
+    assert.equal(state.messages.at(-1)?.media, undefined);
+    assert.ok(logs.some((item) => item.event === "assistant_v2_image_ready"));
+  });
+
+  it("puts the photo on the user message for the vision model", () => {
+    const messages = buildAssistantV2Messages(
+      {
+        conversationId: "c",
+        authorRole: "motorista",
+        recentMessages: [],
+        sessionRecords: [],
+        totals: { fuelBrl: 0, expenseBrl: 0, tripCount: 0, pendingCount: 0 },
+        capabilities: [],
+        allowedActions: [],
+        blockedActions: [],
+        message: "sacos",
+        currentUserMessage: "sacos",
+        hasImage: true,
+        imageDataUrl: "data:image/jpeg;base64,xx",
+      },
+      true,
+    );
+    const user = messages[1]?.content;
+    assert.ok(Array.isArray(user));
+    assert.equal((user as Array<{ type: string }>)[1]?.type, "image_url");
   });
 });

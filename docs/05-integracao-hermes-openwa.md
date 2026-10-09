@@ -147,6 +147,7 @@ npm run start   # exige config; para smoke local: HMAC_REQUIRED=false LIVE_SEND=
 - Confirmar path/header de send no `openwa-api` em uso.
 - Registrar webhook exclusivo.
 - STT se áudio chegar sem `body`.
+- Foto: webhook `media.data` ou GET `OPENWA_MEDIA_PATH` (`/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media`). V2 manda a imagem ao mesmo chat completions (`LLM_VISION_ENABLED=true`). Sem bytes, usa a legenda dos últimos 3 min. Base64 **não** vai para o `store.json`.
 - Não conectar Google Sheets nesta etapa.
 
 ## 11. Riscos

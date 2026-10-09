@@ -19,6 +19,7 @@ export type LlmHttpInfo = {
   path: string;
   bodyPreview: string;
   usedResponseFormat: boolean;
+  vision?: boolean;
 };
 
 export type LlmProviderHooks = {

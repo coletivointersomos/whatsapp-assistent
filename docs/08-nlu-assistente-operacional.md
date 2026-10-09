@@ -14,6 +14,8 @@ Hermes/OpenWA continua só canal. O LLM **não** executa ação sozinho e **não
 
 O LLM interpreta intenção. O engine pergunta o que falta (em despesa, valor antes de data). Não inventar data.
 
+Foto no grupo: webhook ou GET OpenWA (`chatId` + `messageId`) → o mesmo Qwen do Hermes com `LLM_VISION_ENABLED` → as mesmas `record.*` do V2. Legenda até 3 min atrás entra no contexto se a foto vier sem texto. Pix de frete/crédito não vira despesa. Base64 não entra no store.
+
 ## 2. O que o código faz vs o que o LLM faz
 
 | Camada | Responsabilidade |
@@ -51,6 +53,8 @@ LLM_NLU_PROVIDER=fake
 LLM_NLU_API_KEY=
 LLM_NLU_BASE_URL=
 LLM_NLU_MAX_TOKENS=512
+LLM_VISION_ENABLED=false
+LLM_VISION_MODEL=
 ```
 
 `max_tokens` padrão **512** (NLU JSON curto). Sem isso, alguns provedores pedem 16k tokens e respondem **402** se o crédito residual for menor. Smoke: `npm run nlu:smoke` (status HTTP + parse; sem secrets). URL: `{base}/chat/completions`, sem duplicar se `base` já termina nesse path. Logs `nlu_http`: status, host, path, bodyPreview mascarado.
