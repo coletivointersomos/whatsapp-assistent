@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { AppState, OperationalRecord } from "../domain/types.ts";
 import { recordInCurrentSession, parseSessionStart } from "../assistant-v2/session.ts";
-import { isSyncEligible, recordToRow, type SheetRow } from "./mapper.ts";
+import { assignSheetCodes, isSyncEligible, recordToRow, tabForRecord, type SheetRow } from "./mapper.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason, canWriteAppsScript, type SheetsWriteConfig } from "./config.ts";
 import { fetchGoogleAccessToken, type ServiceAccountFile } from "./googleJwt.ts";
 import { replaceSheetValues, rowsToValueRange } from "./googleSheets.ts";
@@ -18,7 +18,30 @@ export function recordsForSheet(state: AppState, sessionStartedAt?: string): Ope
 }
 
 export function sheetRowsFromState(state: AppState, sessionStartedAt?: string): SheetRow[] {
-  return recordsForSheet(state, sessionStartedAt).map((record) => recordToRow(state, record));
+  return assignSheetCodes(recordsForSheet(state, sessionStartedAt).map((record) => recordToRow(state, record)));
+}
+
+export function sheetGroupsFromState(
+  state: AppState,
+  sessionStartedAt?: string,
+  tabMode: SheetsWriteConfig["tabMode"] = "fixed",
+  fixedTab = "registros",
+): Array<{ tabName: string; rows: SheetRow[] }> {
+  const records = recordsForSheet(state, sessionStartedAt);
+  if (tabMode !== "vehicle_month") {
+    return [{ tabName: fixedTab, rows: assignSheetCodes(records.map((record) => recordToRow(state, record))) }];
+  }
+  const buckets = new Map<string, OperationalRecord[]>();
+  for (const record of records) {
+    const tab = tabForRecord(record);
+    const list = buckets.get(tab) ?? [];
+    list.push(record);
+    buckets.set(tab, list);
+  }
+  return [...buckets.entries()].map(([tabName, items]) => ({
+    tabName,
+    rows: assignSheetCodes(items.map((record) => recordToRow(state, record))),
+  }));
 }
 
 export function formatRewritePreview(input: {
@@ -84,15 +107,19 @@ export async function writeStateToGoogleSheet(input: {
   try {
     const account = input.account ?? loadServiceAccount(config.credentialsPath);
     const token = await fetchGoogleAccessToken(account, input.fetchImpl);
-    const rows = sheetRowsFromState(input.state, config.sessionStartedAt);
-    await replaceSheetValues({
-      spreadsheetId: config.spreadsheetId,
-      tabName: config.tabName,
-      accessToken: token,
-      rows,
-      fetchImpl: input.fetchImpl,
-    });
-    return { ok: true, rowCount: rows.length };
+    const groups = sheetGroupsFromState(input.state, config.sessionStartedAt, config.tabMode, config.tabName);
+    let rowCount = 0;
+    for (const group of groups) {
+      await replaceSheetValues({
+        spreadsheetId: config.spreadsheetId,
+        tabName: group.tabName,
+        accessToken: token,
+        rows: group.rows,
+        fetchImpl: input.fetchImpl,
+      });
+      rowCount += group.rows.length;
+    }
+    return { ok: true, rowCount };
   } catch (error) {
     const message = error instanceof Error ? error.message : "sheets_write_failed";
     return { ok: false, reason: message.slice(0, 180) };

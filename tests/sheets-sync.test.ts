@@ -33,7 +33,8 @@ function fuelIncomplete() {
 describe("sheets sync", () => {
   it("puts record_id first in the sheet contract from OperationalRecord.id", () => {
     const state = sheetsDemoState();
-    assert.equal(SHEET_COLUMNS[0], "record_id");
+    assert.equal(SHEET_COLUMNS[0], "codigo");
+    assert.equal(SHEET_COLUMNS[1], "fluxo");
     for (const record of state.records) {
       const row = recordToRow(state, record);
       assert.equal(row.record_id, record.id);

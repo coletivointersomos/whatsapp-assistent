@@ -2,6 +2,8 @@ import { maskJid } from "../inspect/mask.ts";
 import type { AppState, OperationalRecord, StoredMessage } from "../domain/types.ts";
 
 export type SheetRow = {
+  codigo: string;
+  fluxo: string;
   record_id: string;
   data_registro: string;
   tipo: string;
@@ -24,9 +26,13 @@ export type SheetRow = {
   material: string;
   quantidade: string;
   unidade: string;
+  peso_carga: string;
+  valor_movimento: string;
 };
 
 export const SHEET_COLUMNS: (keyof SheetRow)[] = [
+  "codigo",
+  "fluxo",
   "record_id",
   "data_registro",
   "tipo",
@@ -49,6 +55,8 @@ export const SHEET_COLUMNS: (keyof SheetRow)[] = [
   "material",
   "quantidade",
   "unidade",
+  "peso_carga",
+  "valor_movimento",
 ];
 
 function cell(value: string | number | undefined): string {
@@ -97,6 +105,8 @@ export function origemWhatsapp(record: OperationalRecord): string {
 function emptyRow(state: AppState, record: OperationalRecord): SheetRow {
   const bounds = sourceBounds(state, record);
   return {
+    codigo: "",
+    fluxo: record.kind === "viagem" ? "entrada" : "saida",
     record_id: cell(record.id),
     data_registro: "",
     tipo: record.kind,
@@ -119,6 +129,8 @@ function emptyRow(state: AppState, record: OperationalRecord): SheetRow {
     material: "",
     quantidade: "",
     unidade: "",
+    peso_carga: "",
+    valor_movimento: "",
   };
 }
 
@@ -131,6 +143,7 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
     row.veiculo = cell(f.vehicle);
     row.litros = cell(f.liters);
     row.valor = cell(f.totalBrl);
+    row.valor_movimento = cell(f.totalBrl);
     row.posto_local = cell(f.place);
     row.pagamento = cell(f.payment);
     row.observacoes = cell(f.note);
@@ -139,6 +152,7 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
     row.data_registro = cell(f.date);
     row.veiculo = cell(f.vehicle);
     row.valor_despesa = cell(f.amountBrl);
+    row.valor_movimento = cell(f.amountBrl);
     row.descricao_despesa = cell(f.description);
     row.pagamento_despesa = cell(f.payment);
     row.observacoes = cell(f.note);
@@ -151,6 +165,8 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
     row.material = cell(f.material);
     row.quantidade = cell(f.quantity);
     row.unidade = cell(f.unit);
+    row.peso_carga = cell(f.quantity);
+    row.valor_movimento = cell(f.freightTotal);
     row.observacoes = cell(f.note);
   }
 
@@ -158,7 +174,42 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
 }
 
 export function recordsToRows(state: AppState): SheetRow[] {
-  return state.records.map((r) => recordToRow(state, r));
+  return assignSheetCodes(state.records.map((r) => recordToRow(state, r)));
+}
+
+const CODE_PREFIX: Record<string, string> = {
+  viagem: "VIAGEM",
+  despesa: "DESP",
+  abastecimento: "ABAST",
+};
+
+export function assignSheetCodes(rows: SheetRow[]): SheetRow[] {
+  const counts: Record<string, number> = { viagem: 0, despesa: 0, abastecimento: 0 };
+  return rows.map((row) => {
+    const tipo = row.tipo || "viagem";
+    counts[tipo] = (counts[tipo] ?? 0) + 1;
+    const prefix = CODE_PREFIX[tipo] ?? "REG";
+    return { ...row, codigo: `${prefix}${String(counts[tipo]).padStart(3, "0")}` };
+  });
+}
+
+export function vehicleMonthTab(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
+  const month = dateIso && /^\d{4}-\d{2}/.test(dateIso) ? dateIso.slice(0, 7) : now.toISOString().slice(0, 7);
+  const slug =
+    (vehicle || "Caminhao")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .split(/[^A-Za-z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join("")
+      .slice(0, 24) || "Caminhao";
+  return `${slug}-${month}`;
+}
+
+export function tabForRecord(record: OperationalRecord, now = new Date()): string {
+  const body = record.viagem ?? record.despesa ?? record.abastecimento;
+  return vehicleMonthTab(body?.vehicle, body?.date, now);
 }
 
 /** Sem `record_id` o registro não entra no sync. */

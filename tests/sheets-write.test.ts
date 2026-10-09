@@ -52,7 +52,9 @@ describe("sheets google write", () => {
     });
     const values = rowsToValueRange(sheetRowsFromState(state));
     assert.deepEqual(values[0], [...SHEET_COLUMNS]);
-    assert.equal(values[1]?.[0], "reg-m1");
+    assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("record_id")], "reg-m1");
+    assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("codigo")], "VIAGEM001");
+    assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("fluxo")], "entrada");
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("origem")], "Curitiba");
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("material")], "arroz");
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("quantidade")], "55");
@@ -127,6 +129,7 @@ describe("sheets google write", () => {
         credentialsPath: "inline",
         spreadsheetId: "sheet123",
         tabName: "registros",
+        tabMode: "fixed",
         appsScriptUrl: "",
         appsScriptToken: "",
       },

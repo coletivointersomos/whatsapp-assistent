@@ -10,6 +10,7 @@ import {
   origemWhatsapp,
   recordToRow,
   recordsToRows,
+  vehicleMonthTab,
 } from "../src/sheets/mapper.ts";
 
 function incompleteFuel(): { state: AppState; record: OperationalRecord } {
@@ -40,7 +41,8 @@ describe("sheets mapper", () => {
 
     const fuel = rows.find((r) => r.tipo === "abastecimento" && r.pagamento === "pago");
     assert.ok(fuel?.record_id);
-    assert.equal(SHEET_COLUMNS[0], "record_id");
+    assert.equal(SHEET_COLUMNS[0], "codigo");
+    assert.equal(fuel?.fluxo, "saida");
     assert.equal(fuel?.motorista, "João");
     assert.equal(fuel?.litros, "200");
     assert.equal(fuel?.valor, "1200");
@@ -63,6 +65,9 @@ describe("sheets mapper", () => {
     assert.equal(expense?.origem, "");
 
     const trip = rows.find((r) => r.tipo === "viagem");
+    assert.equal(trip?.fluxo, "entrada");
+    assert.match(trip?.codigo ?? "", /^VIAGEM\d{3}$/);
+    assert.equal(fuel?.fluxo, "saida");
     assert.equal(trip?.origem, "Barreiras");
     assert.equal(trip?.destino, "Recife");
     assert.equal(trip?.material, "soja");
@@ -181,5 +186,11 @@ describe("sheets export", () => {
     assert.equal(row.posto_local, "");
     assert.match(table, /\tincompleto\t/);
     assert.equal(table.includes("undefined"), false);
+  });
+});
+
+describe("sheets month tab", () => {
+  it("names the tab by truck and month", () => {
+    assert.equal(vehicleMonthTab("caminhão 1", "2026-10-05"), "Caminhao1-2026-10");
   });
 });

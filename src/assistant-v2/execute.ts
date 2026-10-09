@@ -84,6 +84,29 @@ function mergeFields(
   return suggested;
 }
 
+function norm(value: string | number | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function fieldsConflict(record: OperationalRecord, incoming: Record<string, string | number>): boolean {
+  const current =
+    record.kind === "abastecimento"
+      ? record.abastecimento
+      : record.kind === "despesa"
+        ? record.despesa
+        : record.viagem;
+  const differs = (key: string) => {
+    const left = norm(current?.[key as keyof typeof current] as string | number | undefined);
+    const right = norm(incoming[key]);
+    return Boolean(left && right && left !== right);
+  };
+  if (record.kind === "viagem") {
+    return (differs("origin") && differs("destination")) || differs("date");
+  }
+  if (record.kind === "despesa") return differs("description") && differs("date");
+  return differs("place") && differs("date");
+}
+
 function looksLikePlace(value: string, ...places: Array<string | number | undefined>): boolean {
   const n = value.trim().toLowerCase();
   return places.some((place) => typeof place === "string" && place.trim().toLowerCase() === n);
@@ -232,11 +255,36 @@ export function executeAssistantV2Actions(input: {
             activeOfKind(records, "abastecimento");
         }
       }
-      if (!target) {
-        blocked.push({ type: action.type, reason: "no_session_target" });
+      const incomingKind = action.recordType ?? target?.kind;
+      const fields = mergeFields(incomingKind ?? "viagem", text, sentAt, action.fields, vehicleHint);
+      const photoNew =
+        inbound.type === "anexo_comprovante" && !action.recordId;
+      const clash = Boolean(target && incomingKind && target.kind !== incomingKind) || Boolean(target && fieldsConflict(target, fields));
+      if (!target || photoNew || clash) {
+        if (!conversation.driverId) {
+          blocked.push({ type: action.type, reason: "permission_denied" });
+          continue;
+        }
+        const kind = incomingKind ?? "viagem";
+        const created: OperationalRecord = {
+          id: operationalRecordId(inbound.externalId),
+          kind,
+          driverId: conversation.driverId,
+          status: "incompleto",
+          sourceMessageIds: [inbound.externalId],
+          missing: [],
+          abastecimento: kind === "abastecimento" ? fields : undefined,
+          despesa: kind === "despesa" ? fields : undefined,
+          viagem: kind === "viagem" ? fields : undefined,
+        };
+        created.missing = missingOf(created);
+        created.status = created.missing.length === 0 ? "completo" : "incompleto";
+        state.records.push(created);
+        record = created;
+        decision = created.status === "completo" ? "record_created" : "record_incomplete";
+        applied.push("record.create");
         continue;
       }
-      const fields = mergeFields(target.kind, text, sentAt, action.fields, vehicleHint);
       applyInto(target, fields);
       if (target.id.includes("@") || target.id.includes("false_")) {
         target.id = operationalRecordId(inbound.externalId);

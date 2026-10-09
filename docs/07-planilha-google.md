@@ -1,7 +1,10 @@
 # 07 — Planilha Google
 
-**Status:** rewrite via **Apps Script** (quinta) ou service account (reserva). Gravação off até URL+token no servidor.  
-**Ainda não:** app Workspace / pasta Drive de produção.
+**Status (2026-10-09, VPS):** service account + `SHEETS_SPREADSHEET_ID`. Com `SHEETS_TAB_MODE=vehicle_month` o robô **cria/reescreve a aba do mês daquele caminhão** (`Caminhao1-2026-10`), não a aba de teste `registros`. Viagem = **entrada** (verde); abastecimento/despesa = **saída** (vermelho). Código visível `VIAGEM001` / `DESP001` / `ABAST001`. Apps Script no repo é reserva se não houver URL.
+
+**Agora não:** pastas Drive por caminhão nem um arquivo por mês. A aba já é o recorte mês+veículo na mesma planilha.
+
+**Corte de sessão:** `ASSISTANT_V2_SESSION_STARTED_AT` no servidor limita o que entra na aba (não é o histórico inteiro do store).
 
 ## Experimento (quinta) — Apps Script
 
@@ -36,3 +39,16 @@ Continua no código. Só entra se **não** houver `SHEETS_APPS_SCRIPT_URL`.
 ## Produção (depois)
 
 App Workspace do Coletivo + pasta Drive. O Apps Script é o atalho da quinta, não a identidade final do robô.
+
+## Abas derivadas (na mesma planilha, sem Drive)
+
+O rewrite **só limpa/reescreve** `registros`. Outras abas no mesmo arquivo **não** são apagadas. Criar uma vez no Google (aba nova, célula A1):
+
+| Aba | Fórmula (locale PT-BR: `QUERY` / `;`) |
+|---|---|
+| `abastecimentos` | `=QUERY(registros!A:W;"select * where C = 'abastecimento'";1)` |
+| `despesas` | `=QUERY(registros!A:W;"select * where C = 'despesa'";1)` |
+| `viagens` | `=QUERY(registros!A:W;"select * where C = 'viagem'";1)` |
+| `pendencias` | `=QUERY(registros!A:W;"select * where F = 'incompleto'";1)` |
+
+Coluna **C** = `tipo`, **E** = `veiculo` (depois filtra TFA), **B** = `data_registro` (depois corta mês). Quando existir pasta por caminhão/mês, o mapeamento já sai dessas colunas — não precisa inventar outro contrato.

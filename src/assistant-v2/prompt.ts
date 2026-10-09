@@ -13,7 +13,9 @@ Campos da viagem vão DENTRO de fields: {"origin":"...","destination":"...","mat
 Não coloque origin/destination/material soltos na action. record.create se for viagem nova; record.update só para completar a mesma.
 até / para / pra são rota (origin → destination), nunca material. Carga é o que vem com a quantidade (ex.: 50 m³ de feijão). m3 já é unidade.
 Não peça origem/destino se a frase já tem a rota. Não peça confirmação para registro comum.
-Se persistHint for emit_record_actions, a fala pode estar ok: devolva record.create ou record.update com origin, destination, material, quantity, unit, date.
+Se persistHint for emit_record_actions, a fala pode estar ok: devolva record.create (não update) com recordType viagem|despesa|abastecimento e fields.
+Foto/comprovante/romaneio: SEMPRE record.create com recordType. Nunca record.update numa viagem antiga de outra data/rota. Pedágio, borracharia e diesel são despesa ou abastecimento, não viagem. Várias linhas no caderno = um record.create por lançamento visível (até 8).
+recordType (não kind) em cada action. Ex.: {"type":"record.create","recordType":"despesa","fields":{"amountBrl":199.6,"description":"Pedágio","date":"2026-09-25","payment":"cartão"}}.
 Broadcast/planilha/perguntar a outro motorista exigem confirmação.
 
 JSON:

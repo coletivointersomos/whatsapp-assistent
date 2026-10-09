@@ -37,6 +37,14 @@ function asFields(value: unknown): Record<string, unknown> {
       if (unit) out.unit = unit;
       continue;
     }
+    if (key === "freightValue" || key === "valorFrete" || key === "frete") {
+      out.freightTotal = item;
+      continue;
+    }
+    if (key === "peso" || key === "weight" || key === "pesoLiquido") {
+      out.quantity = item;
+      continue;
+    }
     if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") out[key] = item;
   }
   return out;
@@ -49,6 +57,7 @@ function actionFields(obj: Record<string, unknown>): Record<string, unknown> {
     "type",
     "recordType",
     "record_type",
+    "kind",
     "recordId",
     "record_id",
     "fields",
@@ -74,7 +83,7 @@ function parseAction(raw: unknown): AssistantV2Action | undefined {
   if (!obj) return undefined;
   const type = asString(obj.type);
   if (type === "record.create") {
-    const recordType = asRecordType(obj.recordType ?? obj.record_type);
+    const recordType = asRecordType(obj.recordType ?? obj.record_type ?? obj.kind);
     if (!recordType) return undefined;
     return { type, recordType, fields: actionFields(obj) };
   }
@@ -82,7 +91,7 @@ function parseAction(raw: unknown): AssistantV2Action | undefined {
     return {
       type,
       recordId: asString(obj.recordId) ?? asString(obj.record_id),
-      recordType: asRecordType(obj.recordType ?? obj.record_type),
+      recordType: asRecordType(obj.recordType ?? obj.record_type ?? obj.kind),
       fields: actionFields(obj),
     };
   }

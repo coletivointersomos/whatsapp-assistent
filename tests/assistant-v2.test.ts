@@ -636,4 +636,54 @@ describe("assistant v2 image + caption", () => {
     assert.ok(Array.isArray(user));
     assert.equal((user as Array<{ type: string }>)[1]?.type, "image_url");
   });
+
+  it("accepts record.create with kind instead of recordType", () => {
+    const parsed = parseAssistantV2Response({
+      message: "ok",
+      actions: [{ type: "record.create", kind: "despesa", fields: { amountBrl: 100, description: "Borracharia" } }],
+      confidence: 0.9,
+    });
+    assert.equal(parsed.actions[0]?.type, "record.create");
+    if (parsed.actions[0]?.type === "record.create") assert.equal(parsed.actions[0].recordType, "despesa");
+  });
+
+  it("creates a new trip from a photo instead of updating an old session trip", async () => {
+    const state = seedState();
+    state.messages.push({
+      ...msg({ externalId: "old-arr", text: "viagem antiga" }),
+      processedAt: NOW.toISOString(),
+    });
+    state.records.push({
+      id: "reg-old-trip",
+      kind: "viagem",
+      driverId: "motorista-joao",
+      status: "completo",
+      sourceMessageIds: ["old-arr"],
+      missing: [],
+      viagem: { origin: "Araranguá", destination: "Curitiba", material: "arroz", date: "2026-09-18" },
+    });
+    const out = await run(
+      state,
+      msg({
+        externalId: "img-milho",
+        type: "anexo_comprovante",
+        text: "",
+        media: { mime: "image/jpeg", base64: "aaa", source: "webhook" },
+      }),
+      script(() => ({
+        message: "ticket milho",
+        actions: [
+          {
+            type: "record.update",
+            recordType: "viagem",
+            fields: { material: "milho", quantity: 53.75, origin: "Sátiro Dias" },
+          },
+        ],
+        confidence: 0.9,
+      })),
+    );
+    assert.notEqual(out.record?.id, "reg-old-trip");
+    assert.equal(out.record?.viagem?.material, "milho");
+    assert.equal(state.records.find((item) => item.id === "reg-old-trip")?.viagem?.origin, "Araranguá");
+  });
 });
