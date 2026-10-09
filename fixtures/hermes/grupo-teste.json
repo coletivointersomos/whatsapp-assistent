@@ -1,0 +1,20 @@
+{
+  "channelFile": "config/channel.example.json",
+  "envelopes": [
+    {
+      "event": "message.received",
+      "sessionId": "sessao-lab-substituivel",
+      "data": {
+        "id": "lab-msg-abast-1",
+        "chatId": "grupo-lab-teste@g.us",
+        "author": "chat-motorista-1@c.us",
+        "fromMe": false,
+        "isGroup": true,
+        "body": "hoje abasteci 200 litros no posto X deu 1200 pago",
+        "type": "chat",
+        "timestamp": 1757520000,
+        "mentionedIds": ["bot-lab@c.us"]
+      }
+    }
+  ]
+}

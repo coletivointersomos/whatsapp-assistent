@@ -1,0 +1,61 @@
+{
+  "channelFile": "config/channel.example.json",
+  "envelopes": [
+    {
+      "event": "message.received",
+      "sessionId": "sessao-lab-substituivel",
+      "data": {
+        "id": "m1",
+        "chatId": "chat-motorista-1@c.us",
+        "from": "chat-motorista-1@c.us",
+        "fromMe": false,
+        "isGroup": false,
+        "body": "hoje abasteci 200 litros no posto X deu 1200 pago",
+        "type": "chat",
+        "timestamp": 1757520000
+      }
+    },
+    {
+      "event": "message.received",
+      "sessionId": "sessao-lab-substituivel",
+      "data": {
+        "id": "m2",
+        "chatId": "chat-motorista-2@c.us",
+        "from": "chat-motorista-2@c.us",
+        "fromMe": false,
+        "isGroup": false,
+        "body": "hoje gastei 150 com almoço pago",
+        "type": "voice",
+        "timestamp": 1757520600
+      }
+    },
+    {
+      "event": "message.received",
+      "sessionId": "sessao-lab-substituivel",
+      "data": {
+        "id": "m3",
+        "chatId": "chat-central@c.us",
+        "from": "alana-lab@c.us",
+        "fromMe": false,
+        "isGroup": false,
+        "body": "suspender motorista João de 2026-09-10 até 2026-09-15",
+        "type": "chat",
+        "timestamp": 1757521200
+      }
+    },
+    {
+      "event": "message.received",
+      "sessionId": "sessao-lab-substituivel",
+      "data": {
+        "id": "m-unauth",
+        "chatId": "grupo-nao-autorizado@g.us",
+        "author": "fulano@c.us",
+        "fromMe": false,
+        "isGroup": true,
+        "body": "hoje abasteci 200 litros no posto X deu 1200 pago",
+        "type": "chat",
+        "timestamp": 1757521800
+      }
+    }
+  ]
+}

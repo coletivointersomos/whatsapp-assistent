@@ -1,0 +1,24 @@
+{
+  "name": "whatsapp-assistent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test tests/extraction.test.ts tests/command.test.ts tests/engine.test.ts tests/simulate.test.ts tests/schedule.test.ts tests/sheets.test.ts tests/sheets-sync.test.ts tests/sheets-write.test.ts tests/sheets-apps-script.test.ts tests/hermes-adapter.test.ts tests/controlled-send.test.ts tests/group-conversation.test.ts tests/resume.test.ts tests/pending-complete.test.ts tests/conversation-flow.test.ts tests/assist.test.ts tests/records-preview.test.ts tests/nlu.test.ts tests/nlu-first.test.ts tests/nlu-llm.test.ts tests/pending-policy.test.ts tests/nlu-plan.test.ts tests/assistant.test.ts tests/assistant-v2.test.ts",
+    "nlu:smoke": "tsx src/cli/nluSmoke.ts",
+    "demo:reset-session": "tsx src/cli/demoReset.ts",
+    "records:preview": "tsx src/cli/recordsPreview.ts",
+    "simulate": "tsx src/cli/simulate.ts",
+    "simulate:demo": "tsx src/cli/simulate.ts --file fixtures/demo-conversa-fluida.json",
+    "schedule:preview": "tsx src/cli/schedulePreview.ts",
+    "sheets:preview": "tsx src/cli/sheetsPreview.ts",
+    "sheets:sync": "tsx src/cli/sheetsSync.ts",
+    "hermes:dry-run": "tsx src/cli/hermesDryRun.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "now": "2026-09-09T12:00:00.000Z",
+  "messages": [
+    {
+      "externalId": "m-alana-1",
+      "conversationId": "conv-joao",
+      "authorId": "alana",
+      "authorRole": "alana",
+      "sentAt": "2026-09-09T12:00:00.000Z",
+      "type": "texto",
+      "text": "João, já conferi o comprovante"
+    },
+    {
+      "externalId": "m-joao-pause",
+      "conversationId": "conv-joao",
+      "authorId": "motorista-joao",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-09T12:02:00.000Z",
+      "type": "texto",
+      "text": "abasteci 150 litros, deu 980, assinada"
+    }
+  ],
+  "resumeAfterMs": 960000
+}

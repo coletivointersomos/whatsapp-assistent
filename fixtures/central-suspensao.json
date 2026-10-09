@@ -1,0 +1,23 @@
+{
+  "now": "2026-09-12T12:00:00.000Z",
+  "messages": [
+    {
+      "externalId": "m-central-1",
+      "conversationId": "conv-central",
+      "authorId": "alana",
+      "authorRole": "alana",
+      "sentAt": "2026-09-12T12:00:00.000Z",
+      "type": "texto",
+      "text": "suspender motorista João de 2026-09-10 até 2026-09-15"
+    },
+    {
+      "externalId": "m-joao-suspenso",
+      "conversationId": "conv-joao",
+      "authorId": "motorista-joao",
+      "authorRole": "motorista",
+      "sentAt": "2026-09-12T12:01:00.000Z",
+      "type": "texto",
+      "text": "abasteci 150 litros, deu 980, assinada"
+    }
+  ]
+}
