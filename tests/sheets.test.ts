@@ -10,6 +10,9 @@ import {
   origemWhatsapp,
   recordToRow,
   recordsToRows,
+  asToneladas,
+  recebidoFlag,
+  viagensTabName,
   vehicleMonthTab,
 } from "../src/sheets/mapper.ts";
 
@@ -192,5 +195,9 @@ describe("sheets export", () => {
 describe("sheets month tab", () => {
   it("names the tab by truck and month", () => {
     assert.equal(vehicleMonthTab("caminhão 1", "2026-10-05"), "Caminhao1-2026-10");
+    assert.equal(viagensTabName("TFA 7A94", "2026-09-08"), "Viagens-TFA7A94-2026-09");
+    assert.equal(asToneladas(47700), "47.7");
+    assert.equal(asToneladas(47.7), "47.7");
+    assert.equal(recebidoFlag("5,724 RECEBI"), "SIM");
   });
 });

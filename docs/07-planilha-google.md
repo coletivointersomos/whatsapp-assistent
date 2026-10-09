@@ -1,6 +1,6 @@
 # 07 — Planilha Google
 
-**Status (2026-10-09, VPS):** service account + `SHEETS_SPREADSHEET_ID`. Com `SHEETS_TAB_MODE=vehicle_month` o robô **cria/reescreve a aba do mês daquele caminhão** (`Caminhao1-2026-10`), não a aba de teste `registros`. Viagem = **entrada** (verde); abastecimento/despesa = **saída** (vermelho). Código visível `VIAGEM001` / `DESP001` / `ABAST001`. Apps Script no repo é reserva se não houver URL.
+**Status (2026-10-09, VPS):** `SHEETS_TAB_MODE=vehicle_month` grava o **controle de viagens** em `Viagens-TFA7A94-2026-09` (não mexe na aba de teste `registros`) e um `Resumo-…` com COUNTA/SUM/QUERY: quantas viagens, toneladas, para onde foi, o que carregou, RECEBI. Linha RECEBI = verde. Pedágio/balança ficam de fora desta aba. Apps Script no repo é reserva.
 
 **Agora não:** pastas Drive por caminhão nem um arquivo por mês. A aba já é o recorte mês+veículo na mesma planilha.
 

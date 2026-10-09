@@ -1,10 +1,22 @@
 import { readFileSync } from "node:fs";
 import type { AppState, OperationalRecord } from "../domain/types.ts";
 import { recordInCurrentSession, parseSessionStart } from "../assistant-v2/session.ts";
-import { assignSheetCodes, isSyncEligible, recordToRow, tabForRecord, type SheetRow } from "./mapper.ts";
+import {
+  assignControleCodes,
+  assignSheetCodes,
+  controleToValues,
+  isSyncEligible,
+  recordToControleRow,
+  recordToRow,
+  resumoGrid,
+  resumoTabName,
+  tabForRecord,
+  type ControleRow,
+  type SheetRow,
+} from "./mapper.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason, canWriteAppsScript, type SheetsWriteConfig } from "./config.ts";
 import { fetchGoogleAccessToken, type ServiceAccountFile } from "./googleJwt.ts";
-import { replaceSheetValues, rowsToValueRange } from "./googleSheets.ts";
+import { replaceSheetValues, rowsToValueRange, writeSheetGrid } from "./googleSheets.ts";
 import { postAppsScriptRewrite } from "./appsScript.ts";
 
 export function recordsForSheet(state: AppState, sessionStartedAt?: string): OperationalRecord[] {
@@ -44,18 +56,49 @@ export function sheetGroupsFromState(
   }));
 }
 
+export function controleGroupsFromState(
+  state: AppState,
+  sessionStartedAt?: string,
+): Array<{ tabName: string; resumoTab: string; rows: ControleRow[] }> {
+  const trips = recordsForSheet(state, sessionStartedAt).filter((record) => record.kind === "viagem");
+  const buckets = new Map<string, OperationalRecord[]>();
+  for (const record of trips) {
+    const tab = tabForRecord(record);
+    const list = buckets.get(tab) ?? [];
+    list.push(record);
+    buckets.set(tab, list);
+  }
+  return [...buckets.entries()].map(([tabName, items]) => {
+    const sorted = [...items].sort((a, b) => (a.viagem?.date ?? "").localeCompare(b.viagem?.date ?? ""));
+    const sample = sorted[0]?.viagem;
+    return {
+      tabName,
+      resumoTab: resumoTabName(sample?.vehicle, sample?.date),
+      rows: assignControleCodes(sorted.map((record) => recordToControleRow(state, record))),
+    };
+  });
+}
+
 export function formatRewritePreview(input: {
   state: AppState;
   config: SheetsWriteConfig;
   source: string;
 }): string {
-  const rows = sheetRowsFromState(input.state, input.config.sessionStartedAt);
+  const controle = input.config.tabMode === "vehicle_month";
+  const rows = controle
+    ? controleGroupsFromState(input.state, input.config.sessionStartedAt).flatMap((group) => group.rows)
+    : sheetRowsFromState(input.state, input.config.sessionStartedAt);
+  const tabs = controle
+    ? controleGroupsFromState(input.state, input.config.sessionStartedAt)
+        .flatMap((group) => [group.tabName, group.resumoTab])
+        .join(", ")
+    : input.config.tabName;
   const skip = sheetsWriteSkipReason(input.config);
   const session = input.config.sessionStartedAt ?? "todas (sem corte de sessão)";
   return [
     `Fonte: ${input.source}`,
     `Modo: dry-run (rewrite da aba)`,
-    `Aba: ${input.config.tabName}`,
+    `Aba: ${tabs}`,
     `Sessão: ${session}`,
     `Linhas: ${rows.length}`,
     skip
@@ -107,6 +150,30 @@ export async function writeStateToGoogleSheet(input: {
   try {
     const account = input.account ?? loadServiceAccount(config.credentialsPath);
     const token = await fetchGoogleAccessToken(account, input.fetchImpl);
+    if (config.tabMode === "vehicle_month") {
+      const groups = controleGroupsFromState(input.state, config.sessionStartedAt);
+      let rowCount = 0;
+      for (const group of groups) {
+        await writeSheetGrid({
+          spreadsheetId: config.spreadsheetId,
+          tabName: group.tabName,
+          accessToken: token,
+          values: controleToValues(group.rows),
+          rowColors: group.rows.map((row) => (row.recebido === "SIM" ? "green" : row.recebido === "NÃO" ? "red" : "none")),
+          fetchImpl: input.fetchImpl,
+        });
+        await writeSheetGrid({
+          spreadsheetId: config.spreadsheetId,
+          tabName: group.resumoTab,
+          accessToken: token,
+          values: resumoGrid(group.tabName),
+          valueInputOption: "USER_ENTERED",
+          fetchImpl: input.fetchImpl,
+        });
+        rowCount += group.rows.length;
+      }
+      return { ok: true, rowCount };
+    }
     const groups = sheetGroupsFromState(input.state, config.sessionStartedAt, config.tabMode, config.tabName);
     let rowCount = 0;
     for (const group of groups) {

@@ -5,7 +5,7 @@ import { seedState } from "../src/config/seed.ts";
 import { signServiceAccountJwt } from "../src/sheets/googleJwt.ts";
 import { rowsToValueRange } from "../src/sheets/googleSheets.ts";
 import { SHEET_COLUMNS } from "../src/sheets/mapper.ts";
-import { recordsForSheet, sheetRowsFromState, writeStateToGoogleSheet } from "../src/sheets/write.ts";
+import { controleGroupsFromState, recordsForSheet, sheetRowsFromState, writeStateToGoogleSheet } from "../src/sheets/write.ts";
 import { canWriteGoogleSheets, loadSheetsWriteConfig, sheetsWriteSkipReason } from "../src/sheets/config.ts";
 
 describe("sheets google write", () => {
@@ -59,6 +59,35 @@ describe("sheets google write", () => {
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("material")], "arroz");
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("quantidade")], "55");
     assert.equal(values[1]?.[SHEET_COLUMNS.indexOf("unidade")], "m³");
+  });
+
+  it("builds a trip-control tab that answers destination and RECEBI", () => {
+    const state = seedState();
+    state.records.push({
+      id: "reg-ctrl",
+      kind: "viagem",
+      driverId: "motorista-joao",
+      status: "completo",
+      sourceMessageIds: ["m1"],
+      missing: [],
+      viagem: {
+        date: "2026-09-08",
+        origin: "Laranjeiras",
+        destination: "Feira de Santana",
+        material: "ureia",
+        quantity: 47.7,
+        unit: "toneladas",
+        note: "RECEBI",
+        vehicle: "TFA7A94",
+      },
+    });
+    const groups = controleGroupsFromState(state);
+    assert.equal(groups[0]?.tabName, "Viagens-TFA7A94-2026-09");
+    assert.equal(groups[0]?.resumoTab, "Resumo-TFA7A94-2026-09");
+    assert.equal(groups[0]?.rows[0]?.codigo, "VIAGEM001");
+    assert.equal(groups[0]?.rows[0]?.recebido, "SIM");
+    assert.equal(groups[0]?.rows[0]?.destino, "Feira de Santana");
+    assert.equal(groups[0]?.rows[0]?.toneladas, "47.7");
   });
 
   it("keeps pre-session records off the Thursday sheet", () => {

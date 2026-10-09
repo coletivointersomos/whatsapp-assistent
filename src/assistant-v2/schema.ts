@@ -41,8 +41,13 @@ function asFields(value: unknown): Record<string, unknown> {
       out.freightTotal = item;
       continue;
     }
-    if (key === "peso" || key === "weight" || key === "pesoLiquido") {
+    if (key === "peso" || key === "weight" || key === "pesoLiquido" || key === "toneladas") {
       out.quantity = item;
+      continue;
+    }
+    if (key === "recebido" || key === "RECEBI") {
+      out.receipt = item;
+      if (typeof item === "string" && /recebi|sim/i.test(item) && out.note === undefined) out.note = "RECEBI";
       continue;
     }
     if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") out[key] = item;

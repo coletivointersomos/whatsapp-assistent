@@ -647,6 +647,34 @@ describe("assistant v2 image + caption", () => {
     if (parsed.actions[0]?.type === "record.create") assert.equal(parsed.actions[0].recordType, "despesa");
   });
 
+  it("maps toneladas and RECEBI on a trip-control action", () => {
+    const parsed = parseAssistantV2Response({
+      message: "ok",
+      actions: [
+        {
+          type: "record.create",
+          recordType: "viagem",
+          fields: {
+            date: "2026-09-08",
+            origin: "Laranjeiras",
+            destination: "F. Santana",
+            material: "ureia",
+            toneladas: 47.7,
+            unit: "toneladas",
+            recebido: "RECEBI",
+            vehicle: "TFA7A94",
+          },
+        },
+      ],
+      confidence: 0.9,
+    });
+    assert.equal(parsed.actions[0]?.type, "record.create");
+    if (parsed.actions[0]?.type === "record.create") {
+      assert.equal(parsed.actions[0].fields.quantity, 47.7);
+      assert.equal(parsed.actions[0].fields.note, "RECEBI");
+    }
+  });
+
   it("creates a new trip from a photo instead of updating an old session trip", async () => {
     const state = seedState();
     state.messages.push({

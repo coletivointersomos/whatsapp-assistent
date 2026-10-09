@@ -195,7 +195,7 @@ export function assignSheetCodes(rows: SheetRow[]): SheetRow[] {
 
 export function vehicleMonthTab(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
   const month = dateIso && /^\d{4}-\d{2}/.test(dateIso) ? dateIso.slice(0, 7) : now.toISOString().slice(0, 7);
-  const slug =
+  let slug =
     (vehicle || "Caminhao")
       .normalize("NFD")
       .replace(/\p{Diacritic}/gu, "")
@@ -204,12 +204,112 @@ export function vehicleMonthTab(vehicle: string | undefined, dateIso: string | u
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
       .join("")
       .slice(0, 24) || "Caminhao";
+  if (/^[A-Za-z]{3}\d/.test(slug)) slug = slug.toUpperCase();
   return `${slug}-${month}`;
+}
+
+export function viagensTabName(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
+  return `Viagens-${vehicleMonthTab(vehicle, dateIso, now)}`;
+}
+
+export function resumoTabName(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
+  return `Resumo-${vehicleMonthTab(vehicle, dateIso, now)}`;
+}
+
+export type ControleRow = {
+  codigo: string;
+  data: string;
+  origem: string;
+  destino: string;
+  material: string;
+  toneladas: string;
+  observacao: string;
+  recebido: string;
+  motorista: string;
+  placa: string;
+  mes: string;
+};
+
+export const CONTROLE_COLUMNS: (keyof ControleRow)[] = [
+  "codigo",
+  "data",
+  "origem",
+  "destino",
+  "material",
+  "toneladas",
+  "observacao",
+  "recebido",
+  "motorista",
+  "placa",
+  "mes",
+];
+
+export function asToneladas(value: string | number | undefined): string {
+  if (value === undefined || value === "") return "";
+  const n = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  if (!Number.isFinite(n) || n === 0) return String(value);
+  const tons = n >= 1000 ? n / 1000 : n;
+  return String(Math.round(tons * 1000) / 1000);
+}
+
+export function recebidoFlag(note?: string, receipt?: string): string {
+  const raw = `${note ?? ""} ${receipt ?? ""}`;
+  if (/recebi/i.test(raw)) return "SIM";
+  if (/passei/i.test(raw)) return "NÃO";
+  return "";
+}
+
+export function recordToControleRow(state: AppState, record: OperationalRecord): ControleRow {
+  const f = record.viagem ?? {};
+  const date = cell(f.date);
+  return {
+    codigo: "",
+    data: date,
+    origem: cell(f.origin),
+    destino: cell(f.destination),
+    material: cell(f.material),
+    toneladas: asToneladas(f.quantity),
+    observacao: cell(f.note ?? f.receipt),
+    recebido: recebidoFlag(f.note, f.receipt),
+    motorista: driverName(state, record.driverId),
+    placa: cell(f.vehicle),
+    mes: date.slice(0, 7),
+  };
+}
+
+export function assignControleCodes(rows: ControleRow[]): ControleRow[] {
+  return rows.map((row, index) => ({ ...row, codigo: `VIAGEM${String(index + 1).padStart(3, "0")}` }));
+}
+
+export function controleToValues(rows: ControleRow[]): string[][] {
+  const header = [...CONTROLE_COLUMNS];
+  const body = rows.map((row) => CONTROLE_COLUMNS.map((col) => row[col] ?? ""));
+  return [header, ...body];
+}
+
+function quotedTab(tabName: string): string {
+  return `'${tabName.replace(/'/g, "''")}'`;
+}
+
+/** Aba-resumo: COUNTA/SUM/QUERY sobre o controle de viagens (locale PT-BR). */
+export function resumoGrid(viagensTab: string): string[][] {
+  const t = quotedTab(viagensTab);
+  return [
+    ["pergunta", "resposta"],
+    ["quantas viagens", `=COUNTA(${t}!A2:A)`],
+    ["total toneladas", `=SUM(${t}!F2:F)`],
+    ["RECEBI", `=COUNTIF(${t}!H2:H;"SIM")`],
+    ["sem RECEBI / passei", `=COUNTIF(${t}!H2:H;"NÃO")`],
+    ["", ""],
+    ["por destino", `=QUERY(${t}!A:K;"select D, sum(F) where D <> '' group by D label D 'destino', sum(F) 'toneladas'";1)`],
+    ["", ""],
+    ["por material", `=QUERY(${t}!A:K;"select E, sum(F) where E <> '' group by E label E 'material', sum(F) 'toneladas'";1)`],
+  ];
 }
 
 export function tabForRecord(record: OperationalRecord, now = new Date()): string {
   const body = record.viagem ?? record.despesa ?? record.abastecimento;
-  return vehicleMonthTab(body?.vehicle, body?.date, now);
+  return viagensTabName(body?.vehicle, body?.date, now);
 }
 
 /** Sem `record_id` o registro não entra no sync. */
