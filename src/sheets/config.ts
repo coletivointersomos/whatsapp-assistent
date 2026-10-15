@@ -45,6 +45,12 @@ export function canWriteGoogleSheets(config: SheetsWriteConfig = loadSheetsWrite
 /** Why Thursday write will not run. Undefined = ready (Apps Script or service account). */
 export function sheetsWriteSkipReason(config: SheetsWriteConfig = loadSheetsWriteConfig()): string | undefined {
   if (!config.enabled) return "sheets_sync_disabled";
+  if (config.tabMode === "vehicle_month") {
+    if (!config.spreadsheetId) return "missing_spreadsheet_id";
+    if (!config.credentialsPath) return "missing_credentials_path";
+    if (!existsSync(config.credentialsPath)) return "credentials_file_missing";
+    return undefined;
+  }
   if (config.appsScriptUrl) {
     if (!config.appsScriptToken) return "missing_apps_script_token";
     return undefined;

@@ -133,7 +133,7 @@ export async function writeSessionToSheet(input: {
   fetchImpl?: typeof fetch;
 }): Promise<{ ok: true; rowCount: number } | { ok: false; reason: string }> {
   const config = input.config ?? loadSheetsWriteConfig();
-  if (canWriteAppsScript(config)) {
+  if (config.tabMode !== "vehicle_month" && canWriteAppsScript(config)) {
     const rows = sheetRowsFromState(input.state, config.sessionStartedAt);
     return postAppsScriptRewrite({
       url: config.appsScriptUrl,

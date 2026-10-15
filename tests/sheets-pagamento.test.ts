@@ -14,7 +14,7 @@ import {
 import { setembroManoelState } from "../src/sheets/setembroManoel.ts";
 import { planGroupSweep } from "../src/sheets/sweep.ts";
 import { validateRascunho } from "../src/sheets/validate.ts";
-import { writeStateToGoogleSheet } from "../src/sheets/write.ts";
+import { writeSessionToSheet, writeStateToGoogleSheet } from "../src/sheets/write.ts";
 
 describe("rascunho + folha oficial Manoel", () => {
   it("keeps competência on the document month, not the WhatsApp day", () => {
@@ -243,6 +243,46 @@ describe("rascunho + folha oficial Manoel", () => {
     assert.equal(result.ok, true);
     assert.ok(calls.some((item) => item.includes(":append")));
     assert.ok(calls.some((item) => item.includes("TFA-MANOEL-2026-09") || item.includes(":clear")));
+  });
+
+  it("does not send vehicle_month pagamento to Apps Script even if the URL is set", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      calls.push(`${init?.method ?? "GET"} ${href}`);
+      if (href.includes("oauth2.googleapis.com/token")) {
+        return new Response(JSON.stringify({ access_token: "ya29.test" }), { status: 200 });
+      }
+      if (href.includes("/values") && (init?.method ?? "GET") === "GET") {
+        return new Response(JSON.stringify({ values: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ sheets: [{ properties: { title: "Sheet1", sheetId: 1 } }] }), { status: 200 });
+    }) as typeof fetch;
+    const result = await writeSessionToSheet({
+      state: setembroManoelState(),
+      config: {
+        enabled: true,
+        credentialsPath: "inline",
+        spreadsheetId: "sheet123",
+        tabName: "registros",
+        tabMode: "vehicle_month",
+        appsScriptUrl: "https://script.google.com/macros/s/abc/exec",
+        appsScriptToken: "secret-token",
+        rascunhoTabName: "Rascunho",
+        commissionRate: 0.11,
+        adminAlertJid: "",
+        sweepIntervalMs: 0,
+      },
+      account: {
+        client_email: "bot@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      },
+      fetchImpl,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(calls.some((item) => item.includes("script.google.com")), false);
+    assert.ok(calls.some((item) => item.includes(":append")));
   });
 });
 
