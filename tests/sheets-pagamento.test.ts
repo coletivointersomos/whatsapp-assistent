@@ -145,9 +145,10 @@ describe("rascunho + folha oficial Manoel", () => {
       },
     );
     const plan = planPagamento({ state });
-    assert.ok(plan.validation.duplicates.length >= 2);
+    assert.ok(plan.validation.duplicates.length >= 1);
     assert.ok(plan.validation.incomplete.length >= 1);
-    assert.equal(plan.validation.promotable.some((row) => row.record_id === "dup-1" || row.record_id === "dup-2"), false);
+    const promotedDups = plan.validation.promotable.filter((row) => row.record_id === "dup-1" || row.record_id === "dup-2");
+    assert.equal(promotedDups.length, 1);
     const incomplete = plan.merged.find((row) => row.message_id === "m-foto");
     assert.equal(incomplete?.status, "incompleto");
     assert.equal(incomplete?.tipo, "outro");
@@ -290,10 +291,11 @@ describe("oficial layout helpers", () => {
   it("builds the Alana header blocks", () => {
     const plan = planPagamento({ state: setembroManoelState() });
     const sheet = buildOficialSheet({ competencia: "2026-09", rows: plan.validation.promotable });
-    assert.equal(sheet.values[0]?.[0], "MOTORISTA TFA");
-    assert.match(String(sheet.values[0]?.[1]), /SETEMBRO/);
-    assert.equal(sheet.values[2]?.[4], "A PAGAR");
-    assert.ok(sheet.fills.some((item) => item.color.red === 1 && item.startCol === 4));
+    assert.match(String(sheet.values[10]?.[0] ?? ""), /MOTORISTA TFA/);
+    assert.match(String(sheet.values[10]?.[0] ?? ""), /SETEMBRO/);
+    assert.equal(sheet.values[5]?.[0], "A PAGAR");
+    assert.ok(sheet.values.some((row) => row.some((cell) => String(cell) === "=47.7" || String(cell) === "=47.61667")));
+    assert.ok(sheet.fills.some((item) => item.color.red === 1 && item.startCol === 0));
     assert.ok(rascunhoKey(plan.merged[0]!));
   });
 });

@@ -367,17 +367,12 @@ export function mergeRascunho(existing: RascunhoRow[], incoming: RascunhoRow[]):
 }
 
 export function markFingerprintDuplicates(rows: RascunhoRow[]): RascunhoRow[] {
-  const groups = new Map<string, RascunhoRow[]>();
-  for (const row of rows) {
-    const list = groups.get(row.fingerprint) ?? [];
-    list.push(row);
-    groups.set(row.fingerprint, list);
-  }
-  const keys = new Set(
-    [...groups.values()].filter((list) => {
-      const ids = new Set(list.map((item) => item.message_id || item.record_id));
-      return list.length > 1 && ids.size > 1;
-    }).flatMap((list) => list.map(rascunhoKey)),
-  );
-  return rows.map((row) => (keys.has(rascunhoKey(row)) && row.status !== "ignorado" ? { ...row, status: "duplicado" } : row));
+  const seen = new Set<string>();
+  return rows.map((row) => {
+    if (row.status === "ignorado") return row;
+    if (!row.fingerprint) return row;
+    if (seen.has(row.fingerprint)) return { ...row, status: "duplicado" };
+    seen.add(row.fingerprint);
+    return row;
+  });
 }

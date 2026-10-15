@@ -83,7 +83,7 @@ export function validateRascunho(input: {
   for (const [, list] of byFingerprint) {
     const ids = new Set(list.map((row) => row.message_id || row.record_id));
     if (list.length > 1 && ids.size > 1) {
-      for (const row of list) {
+      for (const row of list.filter((item) => item.status === "duplicado")) {
         issues.push({
           kind: "duplicado",
           messageId: row.message_id,
@@ -94,9 +94,6 @@ export function validateRascunho(input: {
     }
   }
 
-  const duplicateKeys = new Set(
-    issues.filter((item) => item.kind === "duplicado").map((item) => item.recordId || item.messageId),
-  );
   for (const row of input.rows) {
     const missing = requiredMissing(row);
     if (row.status === "incompleto" || missing) {
@@ -112,9 +109,7 @@ export function validateRascunho(input: {
   const blocked = new Set(
     input.rows
       .filter((row) => {
-        const key = rascunhoKey(row);
         if (row.status === "duplicado" || row.status === "incompleto" || row.status === "ignorado") return true;
-        if (duplicateKeys.has(key) || duplicateKeys.has(row.record_id) || duplicateKeys.has(row.message_id)) return true;
         return Boolean(requiredMissing(row));
       })
       .map(rascunhoKey),

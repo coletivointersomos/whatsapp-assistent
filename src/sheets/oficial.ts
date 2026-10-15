@@ -71,13 +71,22 @@ export function asNumber(value: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Formula so pt-BR Sheets does not turn 47.7 / 5724 into a date. */
+export function sheetNum(value: string | number | undefined): string | "" {
+  if (value === undefined || value === "") return "";
+  const n = typeof value === "number" ? value : asNumber(value);
+  if (!Number.isFinite(n)) return "";
+  return `=${n}`;
+}
+
 export function tripUnitPrice(row: RascunhoRow): number {
   const given = asNumber(row.valor_unitario);
   if (given > 0) return given;
   if (parseSacosFreight(row.descricao)) return 0;
   const tons = asNumber(row.toneladas);
   const valor = asNumber(row.valor);
-  if (tons > 0 && valor > 0) return Math.round((valor / tons) * 100) / 100;
+  if (tons > 0 && valor > 0 && valor >= 50) return Math.round((valor / tons) * 100) / 100;
+  if (tons > 0 && valor > 0 && valor < 50) return valor;
   const dest = `${row.destino} ${row.origem} ${row.material}`.toLowerCase();
   if (/luis eduardo|luís eduardo/.test(dest)) return 200;
   if (/sorgo|natividade|concei/.test(dest)) return 300;
@@ -126,43 +135,42 @@ export function buildOficialSheet(input: {
   const depositTotal = money(deposits.reduce((sum, row) => sum + asNumber(row.valor), 0));
   const net = money(freight - diesel - expenseTotal);
   const commission = money(freight * rate);
-  const aPagar = money(commission);
 
   const values: Array<Array<string | number>> = [];
   const pushes = (row: Array<string | number>) => {
     values.push(row);
   };
 
-  pushes(["MOTORISTA TFA", monthLabel(input.competencia), motorista, placa]);
+  // Left: pagamento. Right: depósitos + totais. Numbers as =n so locale cannot date-parse.
+  pushes(["COMISSÃO", "", "", "", "", "", "DEPOSITOU EM CONTA", "", "", "RECEBEU DE FRETE", ""]);
+  pushes(["INSS+IRRF", sheetNum(0), "", "", "", "", "DATA", "VALOR"]);
+  pushes(["VALE", sheetNum(0)]);
+  pushes(["ADIANTAMENTO", sheetNum(0)]);
   pushes([]);
-  pushes(["Comissão", "INSS+IRRF", "Vale", "Adiantamento", "A PAGAR"]);
-  pushes([`${Math.round(rate * 100)}%`, 0, 0, 0, aPagar]);
+  pushes(["A PAGAR", "", "", "", "", "", "", "", "", "ABASTECEU", ""]);
+  pushes(["", "", "", "", "", "", "", "", "", "DESPESAS", ""]);
+  pushes(["", "", "", "", "", "", "", "", "", "LÍQUIDO", ""]);
+  pushes(["", "", "", "", "", "", "", "", "", "ainda com o Sr. Manoel", ""]);
   pushes([]);
-  pushes(["Depositou em conta", depositTotal]);
-  pushes([]);
-  pushes(["RECEBEU DE FRETE", "ABASTECEU", "DESPESAS", "LÍQUIDO", "ainda com o Sr. Manoel"]);
-  pushes([freight, diesel, expenseTotal, net, money(net - depositTotal)]);
-  pushes([]);
+  pushes([`MOTORISTA TFA — ${monthLabel(input.competencia)}`, "", "", motorista, placa]);
   pushes(["VIAGENS"]);
   pushes(["DATA", "ORIGEM", "DESTINO", "MATERIAL", "TONELADAS", "t", "VALOR", "TOTAL", "%", "COMISSÃO", "OBS"]);
 
-  const tripHeaderRow = values.length; // 1-based later
+  const tripHeaderRow = values.length;
   for (const row of trips) {
     const sheetRow = values.length + 1;
     const rateN = tripUnitPrice(row);
     const sack = parseSacosFreight(row.descricao);
-    const tons = asNumber(row.toneladas) || "";
-    const tCell = sack ? "" : rateN || "";
-    const valorPaper = asNumber(row.valor) || (sack ? sack.total : "");
+    const tons = asNumber(row.toneladas);
     pushes([
       row.data_doc,
       row.origem,
       row.destino,
       row.material,
-      tons,
-      tCell,
-      valorPaper,
-      `=IF(F${sheetRow}="",N(G${sheetRow}),ROUND(N(E${sheetRow})*N(F${sheetRow}),2))`,
+      tons ? sheetNum(tons) : "",
+      tons ? sheetNum(tons) : "",
+      sack ? sheetNum(sack.unitPrice) : rateN ? sheetNum(rateN) : "",
+      sack ? sheetNum(sack.total) : `=ROUND(N(E${sheetRow})*N(G${sheetRow}),2)`,
       `${Math.round(rate * 100)}%`,
       `=ROUND(H${sheetRow}*${rate},2)`,
       sack
@@ -170,54 +178,68 @@ export function buildOficialSheet(input: {
         : row.descricao,
     ]);
   }
-  const tripStart = tripHeaderRow + 2;
+  const tripStart = tripHeaderRow + 1;
   const tripEnd = values.length;
-  const freightFormula = tripEnd >= tripStart ? `=SUM(H${tripStart}:H${tripEnd})` : 0;
+  const freightFormula = tripEnd >= tripStart ? `=SUM(H${tripStart}:H${tripEnd})` : sheetNum(0);
+  const commissionFormula = tripEnd >= tripStart ? `=ROUND(SUM(J${tripStart}:J${tripEnd}),2)` : sheetNum(0);
 
   pushes([]);
   pushes(["ABASTECIMENTO À VISTA"]);
-  pushes(["DATA", "POSTO", "LITROS", "VALOR", "PAGAMENTO"]);
+  pushes(["DATA", "POSTO", "LITROS", "VALOR", "A VISTA", "OBS"]);
   const vistaStart = values.length + 1;
   for (const row of vista) {
-    pushes([row.data_doc, row.posto || row.descricao, "", asNumber(row.valor), row.pagamento || "à vista"]);
+    pushes([row.data_doc, row.posto || row.descricao, "", sheetNum(row.valor), "à vista", ""]);
   }
+  if (vista.length === 0) pushes(["", "", "", sheetNum(0), "", ""]);
   const vistaEnd = values.length;
-  if (vista.length === 0) pushes(["", "", "", 0, ""]);
 
   pushes([]);
   pushes(["ABASTECIMENTO A PRAZO"]);
-  pushes(["DATA", "POSTO", "LITROS", "VALOR", "PAGAMENTO"]);
+  pushes(["DATA", "POSTO", "LITROS", "VALOR", "PRAZO", "OBS"]);
   const prazoStart = values.length + 1;
   for (const row of prazo) {
-    pushes([row.data_doc, row.posto || row.descricao, "", asNumber(row.valor), row.pagamento || "a prazo"]);
+    pushes([row.data_doc, row.posto || row.descricao, "", sheetNum(row.valor), "a prazo", ""]);
   }
+  if (prazo.length === 0) pushes(["", "", "", sheetNum(0), "", ""]);
   const prazoEnd = values.length;
-  if (prazo.length === 0) pushes(["", "", "", 0, ""]);
 
   pushes([]);
   pushes(["DESPESAS"]);
-  pushes(["DATA", "DESCRIÇÃO", "VALOR"]);
+  pushes(["DATA", "DESCRIÇÃO", "VALOR", "OBSERVAÇÃO"]);
   const despStart = values.length + 1;
   for (const row of despesas) {
-    pushes([row.data_doc, row.descricao, asNumber(row.valor)]);
+    pushes([row.data_doc, row.descricao, sheetNum(row.valor), ""]);
   }
+  if (despesas.length === 0) pushes(["", "", sheetNum(0), ""]);
   const despEnd = values.length;
-  if (despesas.length === 0) pushes(["", "", 0]);
 
   const dieselFormula = `=SUM(D${vistaStart}:D${vistaEnd})+SUM(D${prazoStart}:D${prazoEnd})`;
   const expenseFormula = `=SUM(C${despStart}:C${despEnd})`;
-  values[8] = [freightFormula, dieselFormula, expenseFormula, "=A9-B9-C9", "=D9-B6"];
-  values[3][4] = tripEnd >= tripStart ? `=ROUND(SUM(J${tripStart}:J${tripEnd}),2)` : aPagar;
+
+  values[0][1] = commissionFormula;
+  values[0][10] = freightFormula;
+  values[5][1] = "=ROUND(B1-B2-B3-B4,2)";
+  values[5][10] = dieselFormula;
+  values[6][10] = expenseFormula;
+  values[7][10] = "=ROUND(K1-K6-K7,2)";
+  deposits.forEach((row, index) => {
+    while (values.length <= 2 + index) values.push([]);
+    values[2 + index][6] = row.data_doc;
+    values[2 + index][7] = sheetNum(row.valor);
+  });
+  const lastDepositRow = deposits.length ? 2 + deposits.length : 0;
+  values[8][10] = lastDepositRow ? `=ROUND(K8-SUM(H3:H${lastDepositRow}),2)` : "=K8";
 
   const fills: CellFill[] = [
-    fill(0, 1, 0, 4, HEADER),
-    fill(2, 4, 4, 5, YELLOW),
-    fill(7, 9, 0, 5, BLUE),
-    fill(10, 12, 0, 11, GREEN),
+    fill(0, 5, 0, 2, HEADER),
+    fill(5, 6, 0, 2, YELLOW),
+    fill(0, 2, 6, 8, BLUE),
+    fill(0, 9, 9, 11, BLUE),
+    fill(10, 13, 0, 11, GREEN),
   ];
-  if (vistaEnd >= vistaStart) fills.push(fill(vistaStart - 2, vistaEnd, 0, 5, RED));
-  if (prazoEnd >= prazoStart) fills.push(fill(prazoStart - 2, prazoEnd, 0, 5, RED));
-  if (despEnd >= despStart) fills.push(fill(despStart - 2, despEnd, 0, 3, RED));
+  if (vistaEnd >= vistaStart) fills.push(fill(vistaStart - 2, vistaEnd, 0, 6, RED));
+  if (prazoEnd >= prazoStart) fills.push(fill(prazoStart - 2, prazoEnd, 0, 6, RED));
+  if (despEnd >= despStart) fills.push(fill(despStart - 2, despEnd, 0, 4, RED));
 
   return {
     tabName: oficialTabName(input.competencia, motorista),

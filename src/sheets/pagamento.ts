@@ -87,7 +87,6 @@ export async function writePagamentoToGoogleSheet(input: {
   const plan = planPagamento({
     state: input.state,
     existing,
-    sessionStartedAt: input.config.sessionStartedAt,
     commissionRate: input.config.commissionRate,
   });
 
