@@ -7,6 +7,7 @@ const WINDOW_MS = 3 * 60 * 1000;
 export function nearbyCaption(state: AppState, inbound: InboundMessage): string {
   const own = (inbound.text ?? "").trim();
   if (own) return own;
+  if (inbound.type === "anexo_comprovante" || inbound.media?.base64) return "";
   const t0 = new Date(inbound.sentAt).getTime();
   if (!Number.isFinite(t0)) return "";
   const recent = state.messages.filter((item) => {

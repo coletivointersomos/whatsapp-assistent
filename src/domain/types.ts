@@ -87,6 +87,7 @@ export type ViagemFields = {
   unitPrice?: number;
   freightTotal?: number;
   receipt?: string;
+  motorista?: string;
 };
 
 export type OperationalRecord = {

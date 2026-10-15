@@ -60,20 +60,24 @@ export function controleGroupsFromState(
   state: AppState,
   sessionStartedAt?: string,
 ): Array<{ tabName: string; resumoTab: string; rows: ControleRow[] }> {
-  const trips = recordsForSheet(state, sessionStartedAt).filter((record) => record.kind === "viagem");
+  const records = recordsForSheet(state, sessionStartedAt);
   const buckets = new Map<string, OperationalRecord[]>();
-  for (const record of trips) {
+  for (const record of records) {
     const tab = tabForRecord(record);
     const list = buckets.get(tab) ?? [];
     list.push(record);
     buckets.set(tab, list);
   }
   return [...buckets.entries()].map(([tabName, items]) => {
-    const sorted = [...items].sort((a, b) => (a.viagem?.date ?? "").localeCompare(b.viagem?.date ?? ""));
-    const sample = sorted[0]?.viagem;
+    const dateOf = (record: OperationalRecord) =>
+      record.viagem?.date ?? record.despesa?.date ?? record.abastecimento?.date ?? "";
+    const vehicleOf = (record: OperationalRecord) =>
+      record.viagem?.vehicle ?? record.despesa?.vehicle ?? record.abastecimento?.vehicle;
+    const sorted = [...items].sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
+    const sample = sorted[0];
     return {
       tabName,
-      resumoTab: resumoTabName(sample?.vehicle, sample?.date),
+      resumoTab: resumoTabName(vehicleOf(sample), dateOf(sample)),
       rows: assignControleCodes(sorted.map((record) => recordToControleRow(state, record))),
     };
   });
@@ -159,7 +163,7 @@ export async function writeStateToGoogleSheet(input: {
           tabName: group.tabName,
           accessToken: token,
           values: controleToValues(group.rows),
-          rowColors: group.rows.map((row) => (row.recebido === "SIM" ? "green" : row.recebido === "NÃO" ? "red" : "none")),
+          rowColors: group.rows.map((row) => (row.fluxo === "entrada" ? "green" : row.fluxo === "saida" ? "red" : "none")),
           fetchImpl: input.fetchImpl,
         });
         await writeSheetGrid({

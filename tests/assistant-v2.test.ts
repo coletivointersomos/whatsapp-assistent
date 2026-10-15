@@ -6,7 +6,7 @@ import { processMessageAsync } from "../src/engine/process.ts";
 import type { AssistantV2Context, AssistantV2Provider, AssistantV2Response } from "../src/assistant-v2/types.ts";
 import { emptyAssistantV2 } from "../src/assistant-v2/types.ts";
 import { parseAssistantV2Response } from "../src/assistant-v2/schema.ts";
-import { chatUnavailableReply, looksLikeGreeting, looksOperationalV2 } from "../src/assistant-v2/fallback.ts";
+import { chatUnavailableReply, looksLikeGreeting, looksOperationalV2, shouldRetryImagePersist } from "../src/assistant-v2/fallback.ts";
 import { nearbyCaption } from "../src/assistant-v2/nearbyCaption.ts";
 import { buildAssistantV2Messages } from "../src/assistant-v2/provider.ts";
 
@@ -573,7 +573,7 @@ describe("assistant v2 image + caption", () => {
     assert.equal(looksOperationalV2("esse peso divide por 60 dai a quantidade de sacos no valor de 4 reais cada", false), true);
   });
 
-  it("reuses the recent caption when the photo has no text", () => {
+  it("does not glue nearby operational text onto a photo", () => {
     const state = seedState();
     state.messages.push({
       ...msg({ externalId: "cap-1", text: "esse peso divide por 60 dai a quantidade de sacos Transportados no valor de 4 reais cada" }),
@@ -588,7 +588,7 @@ describe("assistant v2 image + caption", () => {
         sentAt: new Date(NOW.getTime() + 1000).toISOString(),
       }),
     );
-    assert.match(caption, /sacos/i);
+    assert.equal(caption, "");
   });
 
   it("does not ask for text when the image bytes are present", async () => {
@@ -604,7 +604,8 @@ describe("assistant v2 image + caption", () => {
       }),
       script((ctx) => {
         assert.equal(ctx.hasImage, true);
-        assert.equal(ctx.persistHint, "emit_record_actions");
+        assert.equal(ctx.persistHint, undefined);
+        assert.equal(ctx.recentMessages.length, 0);
         return { message: "vi o comprovante", actions: [], confidence: 0.9 };
       }),
       logs,
@@ -612,6 +613,55 @@ describe("assistant v2 image + caption", () => {
     assert.doesNotMatch(out.replies[0]?.text ?? "", /não leio/i);
     assert.equal(state.messages.at(-1)?.media, undefined);
     assert.ok(logs.some((item) => item.event === "assistant_v2_image_ready"));
+    assert.equal(logs.some((item) => item.event === "assistant_v2_action_retry"), false);
+  });
+
+  it("retries persist when the vision reply names the trip-control sheet", async () => {
+    assert.equal(shouldRetryImagePersist("Recebi a foto do CONTROLE DE VIAGENS. Vou registrar as 7 linhas visíveis"), true);
+    assert.equal(shouldRetryImagePersist("Entendi, a foto é de um comprovante de pedágio."), false);
+    const state = seedState();
+    const logs: Array<{ event: string }> = [];
+    let calls = 0;
+    const out = await run(
+      state,
+      msg({
+        externalId: "img-ctrl",
+        type: "anexo_comprovante",
+        text: "",
+        media: { mime: "image/jpeg", base64: "aaa", source: "webhook" },
+      }),
+      script((ctx) => {
+        calls += 1;
+        if (ctx.persistHint === "emit_record_actions") {
+          return {
+            message: "Registrei.",
+            actions: [
+              {
+                type: "record.create",
+                recordType: "viagem",
+                fields: {
+                  date: "2026-09-08",
+                  origin: "Laranjeiras",
+                  destination: "Feira de Santana",
+                  material: "ureia",
+                  quantity: 47.7,
+                  unit: "toneladas",
+                  note: "RECEBI",
+                  vehicle: "TFA7A94",
+                },
+              },
+            ],
+            confidence: 0.95,
+          };
+        }
+        return { message: "Recebi a foto do CONTROLE DE VIAGENS. Vou registrar as 7 linhas visíveis", actions: [], confidence: 0.9 };
+      }),
+      logs,
+    );
+    assert.equal(calls, 2);
+    assert.ok(logs.some((item) => item.event === "assistant_v2_action_retry"));
+    assert.equal(out.record?.viagem?.origin, "Laranjeiras");
+    assert.equal(out.record?.viagem?.quantity, 47.7);
   });
 
   it("puts the photo on the user message for the vision model", () => {
@@ -662,6 +712,7 @@ describe("assistant v2 image + caption", () => {
             toneladas: 47.7,
             unit: "toneladas",
             recebido: "RECEBI",
+            observacao: "5.724 RECEBI",
             vehicle: "TFA7A94",
           },
         },
@@ -671,7 +722,8 @@ describe("assistant v2 image + caption", () => {
     assert.equal(parsed.actions[0]?.type, "record.create");
     if (parsed.actions[0]?.type === "record.create") {
       assert.equal(parsed.actions[0].fields.quantity, 47.7);
-      assert.equal(parsed.actions[0].fields.note, "RECEBI");
+      assert.equal(parsed.actions[0].fields.note, "5.724 RECEBI");
+      assert.equal(parsed.actions[0].fields.freightTotal, 5724);
     }
   });
 

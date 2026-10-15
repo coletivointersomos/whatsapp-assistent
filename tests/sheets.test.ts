@@ -11,8 +11,12 @@ import {
   recordToRow,
   recordsToRows,
   asToneladas,
+  parseBrl,
+  parseSacosFreight,
+  normalizePlaca,
   recebidoFlag,
   viagensTabName,
+  caixaTabName,
   vehicleMonthTab,
 } from "../src/sheets/mapper.ts";
 
@@ -196,8 +200,16 @@ describe("sheets month tab", () => {
   it("names the tab by truck and month", () => {
     assert.equal(vehicleMonthTab("caminhão 1", "2026-10-05"), "Caminhao1-2026-10");
     assert.equal(viagensTabName("TFA 7A94", "2026-09-08"), "Viagens-TFA7A94-2026-09");
+    assert.equal(caixaTabName("TFA 7A94", "2026-09-08"), "Caixa-TFA7A94-2026-09");
+    assert.equal(caixaTabName("TFA 7A54", "2026-09-08"), "Caixa-TFA7A94-2026-09");
+    assert.equal(normalizePlaca("TFA 7A54"), "TFA7A94");
     assert.equal(asToneladas(47700), "47.7");
     assert.equal(asToneladas(47.7), "47.7");
     assert.equal(recebidoFlag("5,724 RECEBI"), "SIM");
+    assert.equal(parseBrl("5.724 RECEBI"), 5724);
+    assert.equal(parseBrl("RECEBI"), undefined);
+    assert.equal(parseBrl("47.7"), undefined);
+    assert.equal(recebidoFlag("3.586 = 896 SACOS A 4.00", undefined, 3586), "SIM");
+    assert.deepEqual(parseSacosFreight("3.586 = 896 SACOS A 4.00"), { sacos: 896, unitPrice: 4, total: 3584 });
   });
 });

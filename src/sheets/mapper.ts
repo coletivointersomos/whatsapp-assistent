@@ -193,10 +193,26 @@ export function assignSheetCodes(rows: SheetRow[]): SheetRow[] {
   });
 }
 
+export function compactPlaca(raw?: string): string {
+  return (raw ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+}
+
+/** OCR do papel: TFA7A54 ≈ TFA7A94. */
+export function normalizePlaca(raw?: string, hint?: string): string {
+  const compact = compactPlaca(raw);
+  const hintC = compactPlaca(hint);
+  const isPlate = /^[A-Z]{3}\d[A-Z0-9]{3}$/.test(compact);
+  if (isPlate && (compact === "TFA7A54" || (hintC === "TFA7A94" && /^TFA7A.4$/.test(compact)))) return "TFA7A94";
+  if (isPlate) return compact;
+  return hintC && /^[A-Z]{3}\d[A-Z0-9]{3}$/.test(hintC) ? hintC : compact;
+}
+
 export function vehicleMonthTab(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
   const month = dateIso && /^\d{4}-\d{2}/.test(dateIso) ? dateIso.slice(0, 7) : now.toISOString().slice(0, 7);
+  const plate = normalizePlaca(vehicle);
+  const source = /^[A-Z]{3}\d/.test(plate) ? plate : vehicle || "Caminhao";
   let slug =
-    (vehicle || "Caminhao")
+    (source || "Caminhao")
       .normalize("NFD")
       .replace(/\p{Diacritic}/gu, "")
       .split(/[^A-Za-z0-9]+/)
@@ -212,17 +228,23 @@ export function viagensTabName(vehicle: string | undefined, dateIso: string | un
   return `Viagens-${vehicleMonthTab(vehicle, dateIso, now)}`;
 }
 
+export function caixaTabName(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
+  return `Caixa-${vehicleMonthTab(vehicle, dateIso, now)}`;
+}
+
 export function resumoTabName(vehicle: string | undefined, dateIso: string | undefined, now = new Date()): string {
   return `Resumo-${vehicleMonthTab(vehicle, dateIso, now)}`;
 }
 
 export type ControleRow = {
   codigo: string;
+  fluxo: string;
   data: string;
   origem: string;
   destino: string;
   material: string;
   toneladas: string;
+  valor: string;
   observacao: string;
   recebido: string;
   motorista: string;
@@ -232,11 +254,13 @@ export type ControleRow = {
 
 export const CONTROLE_COLUMNS: (keyof ControleRow)[] = [
   "codigo",
+  "fluxo",
   "data",
   "origem",
   "destino",
   "material",
   "toneladas",
+  "valor",
   "observacao",
   "recebido",
   "motorista",
@@ -252,38 +276,107 @@ export function asToneladas(value: string | number | undefined): string {
   return String(Math.round(tons * 1000) / 1000);
 }
 
-export function recebidoFlag(note?: string, receipt?: string): string {
+/** Observação do papel (ex. 5.724 RECEBI) → reais. Não pega 47.7 (toneladas). */
+/** 896 SACOS A 4.00 → 896 × 4 = 3584. */
+export function parseSacosFreight(text: unknown): { sacos: number; unitPrice: number; total: number } | undefined {
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return undefined;
+  const match =
+    s.match(/(\d{2,5})\s*(?:sacos?|sc)\s*(?:a|à|por|x|×|=)?\s*(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)/i) ??
+    s.match(/(\d{2,5})\s*sacos?.*?(\d+(?:[.,]\d{1,2})?)\s*(?:reais?|r\$)/i);
+  if (!match) return undefined;
+  const sacos = Number(match[1]);
+  const unitPrice = Number(String(match[2]).replace(",", "."));
+  if (!Number.isFinite(sacos) || !Number.isFinite(unitPrice) || sacos <= 0 || unitPrice <= 0) return undefined;
+  return { sacos, unitPrice, total: Math.round(sacos * unitPrice * 100) / 100 };
+}
+
+export function formatSacosConta(note: string): { valor: number; observacao: string } | undefined {
+  const sack = parseSacosFreight(note);
+  if (!sack) return undefined;
+  const paper = parseBrl(note);
+  const conta = `${sack.sacos} sacos × R$ ${sack.unitPrice} = ${sack.total}`;
+  const extra = paper !== undefined && paper !== sack.total ? ` (papel ${paper})` : "";
+  return { valor: sack.total, observacao: `${conta}${extra}` };
+}
+
+export function parseBrl(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value === undefined || value === null) return undefined;
+  const s = String(value).replace(/r\$/gi, " ").replace(/\s+/g, " ").trim();
+  const match = s.match(/(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+,\d{2}|\d{4,})/);
+  if (!match) return undefined;
+  let token = match[1];
+  token = /\.\d{3}/.test(token) ? token.replace(/\./g, "").replace(",", ".") : token.replace(",", ".");
+  const n = Number(token);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+export function recebidoFlag(note?: string, receipt?: string, freightTotal?: number): string {
   const raw = `${note ?? ""} ${receipt ?? ""}`;
-  if (/recebi/i.test(raw)) return "SIM";
   if (/passei/i.test(raw)) return "NÃO";
+  if (/recebi/i.test(raw)) return "SIM";
+  if (freightTotal && freightTotal > 0) return "SIM";
+  if (parseBrl(note) !== undefined) return "SIM";
   return "";
 }
 
+export function recordFluxo(record: OperationalRecord): "entrada" | "saida" {
+  return record.kind === "viagem" ? "entrada" : "saida";
+}
+
 export function recordToControleRow(state: AppState, record: OperationalRecord): ControleRow {
-  const f = record.viagem ?? {};
-  const date = cell(f.date);
+  const mapped = recordToRow(state, record);
+  const date = mapped.data_registro;
+  const fluxo = recordFluxo(record);
   return {
     codigo: "",
+    fluxo,
     data: date,
-    origem: cell(f.origin),
-    destino: cell(f.destination),
-    material: cell(f.material),
-    toneladas: asToneladas(f.quantity),
-    observacao: cell(f.note ?? f.receipt),
-    recebido: recebidoFlag(f.note, f.receipt),
-    motorista: driverName(state, record.driverId),
-    placa: cell(f.vehicle),
+    origem: mapped.origem,
+    destino: mapped.destino,
+    material: mapped.material,
+    toneladas: fluxo === "entrada" ? asToneladas(mapped.quantidade || mapped.peso_carga) : "",
+    valor: (() => {
+      const conta = formatSacosConta(mapped.observacoes);
+      if (conta) return String(conta.valor);
+      if (mapped.valor_movimento) return mapped.valor_movimento;
+      const paper = parseBrl(mapped.observacoes);
+      return paper !== undefined ? String(paper) : "";
+    })(),
+    observacao: formatSacosConta(mapped.observacoes)?.observacao || mapped.observacoes || mapped.descricao_despesa || mapped.posto_local,
+    recebido:
+      record.kind === "viagem"
+        ? recebidoFlag(record.viagem?.note, record.viagem?.receipt, record.viagem?.freightTotal)
+        : "",
+    motorista: record.viagem?.motorista?.trim() || (normalizePlaca(mapped.veiculo) === "TFA7A94" ? "Manoel" : mapped.motorista),
+    placa: normalizePlaca(mapped.veiculo) || mapped.veiculo,
     mes: date.slice(0, 7),
   };
 }
 
 export function assignControleCodes(rows: ControleRow[]): ControleRow[] {
-  return rows.map((row, index) => ({ ...row, codigo: `VIAGEM${String(index + 1).padStart(3, "0")}` }));
+  const counts: Record<string, number> = { entrada: 0, saida: 0 };
+  return rows.map((row) => {
+    const fluxo = row.fluxo === "saida" ? "saida" : "entrada";
+    counts[fluxo] += 1;
+    const prefix = fluxo === "saida" ? "SAIDA" : "VIAGEM";
+    return { ...row, codigo: `${prefix}${String(counts[fluxo]).padStart(3, "0")}` };
+  });
 }
 
-export function controleToValues(rows: ControleRow[]): string[][] {
-  const header = [...CONTROLE_COLUMNS];
-  const body = rows.map((row) => CONTROLE_COLUMNS.map((col) => row[col] ?? ""));
+export function controleToValues(rows: ControleRow[]): Array<Array<string | number>> {
+  const header: Array<string | number> = [...CONTROLE_COLUMNS];
+  const body = rows.map((row) =>
+    CONTROLE_COLUMNS.map((col) => {
+      const raw = row[col] ?? "";
+      if ((col === "toneladas" || col === "valor") && raw !== "") {
+        const n = Number(String(raw).replace(",", "."));
+        if (Number.isFinite(n)) return n;
+      }
+      return raw;
+    }),
+  );
   return [header, ...body];
 }
 
@@ -291,25 +384,24 @@ function quotedTab(tabName: string): string {
   return `'${tabName.replace(/'/g, "''")}'`;
 }
 
-/** Aba-resumo: COUNTA/SUM/QUERY sobre o controle de viagens (locale PT-BR). */
-export function resumoGrid(viagensTab: string): string[][] {
-  const t = quotedTab(viagensTab);
+/** Aba-resumo: KPIs à esquerda; QUERY de destino/material em colunas D e F para não se sobrepor. */
+export function resumoGrid(caixaTab: string): string[][] {
+  const t = quotedTab(caixaTab);
+  const destino = `=QUERY(${t}!A:M;"select E, sum(G) where E <> '' group by E label E 'destino', sum(G) 'toneladas'";1)`;
+  const material = `=QUERY(${t}!A:M;"select F, sum(G) where F <> '' group by F label F 'material', sum(G) 'toneladas'";1)`;
   return [
-    ["pergunta", "resposta"],
-    ["quantas viagens", `=COUNTA(${t}!A2:A)`],
-    ["total toneladas", `=SUM(${t}!F2:F)`],
-    ["RECEBI", `=COUNTIF(${t}!H2:H;"SIM")`],
-    ["sem RECEBI / passei", `=COUNTIF(${t}!H2:H;"NÃO")`],
-    ["", ""],
-    ["por destino", `=QUERY(${t}!A:K;"select D, sum(F) where D <> '' group by D label D 'destino', sum(F) 'toneladas'";1)`],
-    ["", ""],
-    ["por material", `=QUERY(${t}!A:K;"select E, sum(F) where E <> '' group by E label E 'material', sum(F) 'toneladas'";1)`],
+    ["pergunta", "resposta", "", "por destino", "", "por material"],
+    ["entradas (verde)", `=COUNTIF(${t}!B2:B;"entrada")`, "", destino, "", material],
+    ["saídas (vermelho)", `=COUNTIF(${t}!B2:B;"saida")`],
+    ["total toneladas", `=SUM(${t}!G2:G)`],
+    ["total recebido (R$)", `=SUM(${t}!H2:H)`],
+    ["RECEBI", `=COUNTIF(${t}!J2:J;"SIM")`],
   ];
 }
 
 export function tabForRecord(record: OperationalRecord, now = new Date()): string {
   const body = record.viagem ?? record.despesa ?? record.abastecimento;
-  return viagensTabName(body?.vehicle, body?.date, now);
+  return caixaTabName(normalizePlaca(body?.vehicle) || body?.vehicle, body?.date, now);
 }
 
 /** Sem `record_id` o registro não entra no sync. */

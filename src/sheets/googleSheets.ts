@@ -111,7 +111,7 @@ export async function writeSheetGrid(input: {
   spreadsheetId: string;
   tabName: string;
   accessToken: string;
-  values: string[][];
+  values: Array<Array<string | number>>;
   valueInputOption?: "RAW" | "USER_ENTERED";
   rowColors?: Array<"green" | "red" | "none">;
   fetchImpl?: typeof fetch;

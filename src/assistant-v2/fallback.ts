@@ -26,6 +26,17 @@ export function looksOperationalV2(text: string, hasSessionPending: boolean): bo
   return false;
 }
 
+/** Foto do controle: o modelo descreveu a tabela mas esqueceu as actions. Pedágio/romaneio não. */
+export function shouldRetryImagePersist(llmMessage: string): boolean {
+  const raw = llmMessage.trim();
+  if (!raw) return false;
+  if (/\b(ped[aá]gio|balan[cç]a|\bdanfe\b|romaneio|borracharia|caderno)\b/i.test(raw) && !/controle de viagens/i.test(raw)) {
+    return false;
+  }
+  if (/n[aã]o vou registr/i.test(raw) && !/controle de viagens/i.test(raw)) return false;
+  return /controle de viagens/i.test(raw) || /vou registrar.{0,40}linhas/i.test(raw);
+}
+
 export function looksLikeGreeting(text: string): boolean {
   return /^(al[oô]|oi|ola|olá|eai|e ai|bom dia|boa tarde|boa noite)[.!?]*$/i.test(text.trim());
 }

@@ -15,6 +15,7 @@ import type {
 import { extractComplement } from "../extraction/extract.ts";
 import { operationalRecordId } from "../domain/recordId.ts";
 import { normalizeCargoUnit } from "../domain/units.ts";
+import { formatSacosConta, normalizePlaca, parseBrl } from "../sheets/mapper.ts";
 import type { AssistantV2Action, AssistantV2RecordType, AssistantV2Response } from "./types.ts";
 import { activeOfKind, lastSessionTrip, parseSessionStart, recordInCurrentSession, sessionRecords } from "./session.ts";
 
@@ -56,6 +57,20 @@ function asScalarMap(fields: Record<string, unknown>): Record<string, string | n
     const unit = normalizeCargoUnit(out.unit);
     if (unit) out.unit = unit;
   }
+  if (typeof out.note === "string") {
+    const conta = formatSacosConta(out.note);
+    if (conta) {
+      out.freightTotal = conta.valor;
+      out.note = conta.observacao;
+    }
+  }
+  if (out.freightTotal !== undefined) {
+    const money = parseBrl(out.freightTotal);
+    if (money !== undefined) out.freightTotal = money;
+  } else if (typeof out.note === "string") {
+    const money = parseBrl(out.note);
+    if (money !== undefined) out.freightTotal = money;
+  }
   return out;
 }
 
@@ -76,7 +91,11 @@ function mergeFields(
   if ((kind === "viagem" || kind === "abastecimento") && suggested.date === undefined) {
     suggested.date = dayIso(sentAt);
   }
-  if (vehicleHint && suggested.vehicle === undefined) suggested.vehicle = vehicleHint;
+  if (typeof suggested.vehicle === "string") {
+    suggested.vehicle = normalizePlaca(suggested.vehicle, typeof vehicleHint === "string" ? vehicleHint : undefined) || suggested.vehicle;
+  } else if (vehicleHint) {
+    suggested.vehicle = vehicleHint;
+  }
   if (typeof suggested.unit === "string") {
     const unit = normalizeCargoUnit(suggested.unit);
     if (unit) suggested.unit = unit;

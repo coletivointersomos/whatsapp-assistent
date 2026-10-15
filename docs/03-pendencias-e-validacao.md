@@ -15,6 +15,7 @@ Produto: `docs/01-produto.md` · Funcionamento: `docs/02-funcionamento.md`
 | Como consultar/corrigir/cancelar suspensões | Operação segura da central |
 | Destino dos registros após coleta (Sheets, outro, só conversa) | Trabalho de consolidação da Alana |
 | Pausa global (existe? quem aciona?) | Escopo além da pausa por conversa |
+| Aviso só no privado do admin (ex.: falta nota TFA), grupo silencioso | Ciclo 3: grupo sem reply; `LIVE_SEND=false` bloqueia também o 1:1. Ver `docs/piloto/pendencias.md` §7 |
 
 **Já definido (ver docs 01 e 02):** estrutura dos campos do papel; coleta diária no piloto (com opção de semanal); tipos viagem / abastecimento / despesa; frete ≠ despesa automática; pausa de 15 min após mensagem da Alana, com retomada silenciosa e acompanhamento durante a pausa; suspensão da central pelo período determinado.
 

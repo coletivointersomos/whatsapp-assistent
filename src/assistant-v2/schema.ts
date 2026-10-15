@@ -1,4 +1,5 @@
 import { normalizeCargoUnit } from "../domain/units.ts";
+import { parseBrl } from "../sheets/mapper.ts";
 import {
   emptyAssistantV2,
   type AssistantV2Action,
@@ -37,12 +38,34 @@ function asFields(value: unknown): Record<string, unknown> {
       if (unit) out.unit = unit;
       continue;
     }
-    if (key === "freightValue" || key === "valorFrete" || key === "frete") {
-      out.freightTotal = item;
+    if (
+      key === "freightValue" ||
+      key === "valorFrete" ||
+      key === "frete" ||
+      key === "valor" ||
+      key === "freightTotal"
+    ) {
+      out.freightTotal = parseBrl(item) ?? item;
+      continue;
+    }
+    if (key === "observacao" || key === "observação") {
+      if (typeof item === "string" || typeof item === "number") out.note = String(item);
+      if (out.freightTotal === undefined) {
+        const money = parseBrl(item);
+        if (money !== undefined) out.freightTotal = money;
+      }
       continue;
     }
     if (key === "peso" || key === "weight" || key === "pesoLiquido" || key === "toneladas") {
       out.quantity = item;
+      continue;
+    }
+    if (key === "motorista" || key === "driverName" || key === "driver") {
+      if (typeof item === "string" && item.trim() && !/^jo[aã]o$/i.test(item.trim())) out.motorista = item.trim();
+      continue;
+    }
+    if (key === "vehicle" || key === "placa") {
+      out.vehicle = typeof item === "string" || typeof item === "number" ? String(item) : item;
       continue;
     }
     if (key === "recebido" || key === "RECEBI") {

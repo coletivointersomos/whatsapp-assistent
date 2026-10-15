@@ -29,7 +29,7 @@ export function buildAssistantV2Context(input: {
   const hasImage = Boolean(input.inbound.media?.base64);
   const operational = looksOperationalV2(text, hasPending) || hasImage;
   const driver = input.state.drivers.find((item) => item.id === input.conversation.driverId);
-  const recent = operational
+  const recent = operational && !hasImage
     ? sessionMessages(input.state, input.conversation, sessionStartedAtMs)
         .slice(-8)
         .map((item) => ({
@@ -71,7 +71,9 @@ export function buildAssistantV2Context(input: {
       "conversar sobre a mensagem atual, qualquer assunto",
       "não continuar assunto antigo se a pessoa mudou de tema",
       "registrar viagem/despesa/abastecimento/status só quando a mensagem atual for operacional",
-      ...(hasImage ? ["ler foto de comprovante, romaneio e caderno e extrair dados"] : []),
+      ...(hasImage
+        ? ["ler só a foto atual; registrar linhas só se for a tabela CONTROLE DE VIAGENS"]
+        : []),
     ],
     allowedActions: ["record.create", "record.update", "status.create", "summary.query"],
     blockedActions: ["broadcast.request", "sheet.change.request", "ask_driver.request"],

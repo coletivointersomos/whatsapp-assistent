@@ -12,6 +12,7 @@ import {
   V2_NEED_TEXT,
   buildV2FallbackActions,
   looksOperationalV2,
+  shouldRetryImagePersist,
   chatUnavailableReply,
 } from "./fallback.ts";
 import { composeV2Reply } from "./reply.ts";
@@ -108,9 +109,7 @@ export async function runAssistantV2(
   let interpreted: AssistantV2Response = emptyAssistantV2("no_provider");
   try {
     if (clock.assistantV2) {
-      interpreted = await Promise.resolve(
-        clock.assistantV2.interpret(imageOps ? { ...ctx, persistHint: "emit_record_actions" } : ctx),
-      );
+      interpreted = await Promise.resolve(clock.assistantV2.interpret(ctx));
     }
   } catch {
     interpreted = emptyAssistantV2("llm_failed");
@@ -129,7 +128,8 @@ export async function runAssistantV2(
   const inboundForExtract = { ...inbound, text: captionText };
   let response = isUsableAssistantV2(interpreted) ? interpreted : emptyAssistantV2(interpreted.notes ?? "unusable");
 
-  if ((textOps || imageOps) && response.actions.length === 0 && clock.assistantV2) {
+  const imageRetry = imageOps && shouldRetryImagePersist(interpreted.message);
+  if (((textOps && !imageOps) || imageRetry) && response.actions.length === 0 && clock.assistantV2) {
     const hardFail =
       interpreted.notes === "llm_timeout" ||
       interpreted.notes === "llm_failed" ||

@@ -50,12 +50,22 @@ export async function fetchGoogleAccessToken(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth2:grant-type:jwt-bearer",
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion,
     }).toString(),
   });
   const raw = await response.text();
-  if (!response.ok) throw new Error(`google token http ${response.status}`);
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const parsed = JSON.parse(raw) as { error?: string; error_description?: string };
+      detail = [parsed.error, parsed.error_description].filter(Boolean).join(" ");
+    } catch {
+      detail = raw.replace(/\s+/g, " ").slice(0, 80);
+    }
+    const safe = detail.replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+/g, "[email]").slice(0, 140);
+    throw new Error(`google token http ${response.status}${safe ? `: ${safe}` : ""}`);
+  }
   let parsed: { access_token?: string };
   try {
     parsed = JSON.parse(raw) as { access_token?: string };

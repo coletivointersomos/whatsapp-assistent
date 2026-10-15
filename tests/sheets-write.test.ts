@@ -77,17 +77,74 @@ describe("sheets google write", () => {
         material: "ureia",
         quantity: 47.7,
         unit: "toneladas",
-        note: "RECEBI",
+        note: "5.724 RECEBI",
+        freightTotal: 5724,
         vehicle: "TFA7A94",
       },
     });
     const groups = controleGroupsFromState(state);
-    assert.equal(groups[0]?.tabName, "Viagens-TFA7A94-2026-09");
+    assert.equal(groups[0]?.tabName, "Caixa-TFA7A94-2026-09");
     assert.equal(groups[0]?.resumoTab, "Resumo-TFA7A94-2026-09");
     assert.equal(groups[0]?.rows[0]?.codigo, "VIAGEM001");
+    assert.equal(groups[0]?.rows[0]?.fluxo, "entrada");
     assert.equal(groups[0]?.rows[0]?.recebido, "SIM");
     assert.equal(groups[0]?.rows[0]?.destino, "Feira de Santana");
     assert.equal(groups[0]?.rows[0]?.toneladas, "47.7");
+    assert.equal(groups[0]?.rows[0]?.valor, "5724");
+    assert.match(groups[0]?.rows[0]?.observacao ?? "", /5\.724/);
+  });
+
+  it("multiplies sacks times unit price into the valor column", () => {
+    const state = seedState();
+    state.records.push({
+      id: "reg-sacks",
+      kind: "viagem",
+      driverId: "motorista-joao",
+      status: "completo",
+      sourceMessageIds: ["m1"],
+      missing: [],
+      viagem: {
+        date: "2026-09-29",
+        origin: "Nova Soure",
+        destination: "Lagarto",
+        material: "milho",
+        quantity: 53.75,
+        unit: "toneladas",
+        note: "3.586 = 896 SACOS A 4.00",
+        freightTotal: 3586,
+        vehicle: "TFA7A94",
+      },
+    });
+    const row = controleGroupsFromState(state)[0]?.rows[0];
+    assert.equal(row?.valor, "3584");
+    assert.match(row?.observacao ?? "", /896 sacos × R\$ 4 = 3584/i);
+  });
+
+  it("puts expenses on the same month tab as red exits", () => {
+    const state = seedState();
+    state.records.push({
+      id: "reg-in",
+      kind: "viagem",
+      driverId: "motorista-joao",
+      status: "completo",
+      sourceMessageIds: ["m1"],
+      missing: [],
+      viagem: { date: "2026-09-08", origin: "Laranjeiras", destination: "Feira de Santana", vehicle: "TFA7A94" },
+    });
+    state.records.push({
+      id: "reg-out",
+      kind: "despesa",
+      driverId: "motorista-joao",
+      status: "completo",
+      sourceMessageIds: ["m2"],
+      missing: [],
+      despesa: { date: "2026-09-18", amountBrl: 100, description: "Borracharia", vehicle: "TFA7A94" },
+    });
+    const groups = controleGroupsFromState(state);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0]?.rows.map((row) => row.fluxo).sort().join(","), "entrada,saida");
+    assert.equal(groups[0]?.rows.find((row) => row.fluxo === "saida")?.codigo, "SAIDA001");
+    assert.equal(groups[0]?.rows.find((row) => row.fluxo === "saida")?.observacao, "Borracharia");
   });
 
   it("keeps pre-session records off the Thursday sheet", () => {
@@ -141,6 +198,8 @@ describe("sheets google write", () => {
       const href = String(url);
       calls.push(`${init?.method ?? "GET"} ${href}`);
       if (href.includes("oauth2.googleapis.com/token")) {
+        assert.match(String(init?.body ?? ""), /urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer/);
+        assert.doesNotMatch(String(init?.body ?? ""), /oauth2%3Agrant-type/);
         return new Response(JSON.stringify({ access_token: "ya29.test" }), { status: 200 });
       }
       if (href.includes("/spreadsheets/") && !href.includes("/values") && !href.includes(":batchUpdate")) {

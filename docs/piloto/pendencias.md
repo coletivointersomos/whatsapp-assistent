@@ -36,3 +36,13 @@ Piloto: frete, combustível, manutenção.
 
 - [ ] Validar tela de confirmação
 - [ ] Combinar rotina diária (quem revisa, em que horário)
+
+## 7. Ciclo 3 — silêncio no grupo vs aviso no privado (2026-10-08)
+
+Combinado na operação: no **grupo** o bot é vigia (não responde). `LIVE_SEND=false` no `hermes-arnaldo-transportadora` trava **todo** envio WhatsApp, inclusive 1:1.
+
+**Depois (não agora):** permitir mensagem **só no chat pessoal do admin** (Derek / Alana), nunca no grupo, com alerta operacional curto. Exemplo: `caminhão TFA falta nota de eletricista`.
+
+Isso exige um canal de envio separado do grupo (`TEST_GROUP_JID`): JID 1:1 do admin na allowlist + gate que bloqueia grupo e libera só esse DM. Não misturar com broadcast para motoristas.
+
+Hoje está certo ficar travado no grupo. Não implementar até o monitoramento de setembro/planilha humana estiver validado.
