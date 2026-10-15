@@ -47,6 +47,7 @@ function runtime(partial: Partial<RuntimeConfig> = {}): RuntimeConfig {
     openwaMediaPath: "/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media",
     port: 8791,
     storePath: "data/store.json",
+    adminAlertJid: "",
     ...partial,
   };
 }

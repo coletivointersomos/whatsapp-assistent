@@ -39,10 +39,8 @@ Piloto: frete, combustível, manutenção.
 
 ## 7. Ciclo 3 — silêncio no grupo vs aviso no privado (2026-10-08)
 
-Combinado na operação: no **grupo** o bot é vigia (não responde). `LIVE_SEND=false` no `hermes-arnaldo-transportadora` trava **todo** envio WhatsApp, inclusive 1:1.
+Combinado na operação: no **grupo** o bot é vigia (não responde). `LIVE_SEND` no grupo permanece off.
 
-**Depois (não agora):** permitir mensagem **só no chat pessoal do admin** (Derek / Alana), nunca no grupo, com alerta operacional curto. Exemplo: `caminhão TFA falta nota de eletricista`.
+Aviso operacional curto vai **só no privado do admin** (Derek / Alana), nunca no grupo. Exemplo: `TFA setembro: foto 23/09 sem valor — conferir`. Sem JID cru no texto.
 
-Isso exige um canal de envio separado do grupo (`TEST_GROUP_JID`): JID 1:1 do admin na allowlist + gate que bloqueia grupo e libera só esse DM. Não misturar com broadcast para motoristas.
-
-Hoje está certo ficar travado no grupo. Não implementar até o monitoramento de setembro/planilha humana estiver validado.
+Gate: `ADMIN_ALERT_JID` tem de ser 1:1 (`@c.us`), estar na allowlist, e `LIVE_SEND=true` só libera esse DM — grupo continua bloqueado pelo `decideSend` (`not_test_group` / live send off). Enquanto o gate não estiver armado, a linha fica `incompleto` e o log é `admin_alert_pending`. Não soltar mensagem no grupo “para testar”.

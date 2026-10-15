@@ -220,6 +220,10 @@ describe("sheets google write", () => {
         tabMode: "fixed",
         appsScriptUrl: "",
         appsScriptToken: "",
+        rascunhoTabName: "Rascunho",
+        commissionRate: 0.11,
+        adminAlertJid: "",
+        sweepIntervalMs: 0,
       },
       account: {
         client_email: "bot@example.iam.gserviceaccount.com",

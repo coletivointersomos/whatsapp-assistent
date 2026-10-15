@@ -16,8 +16,10 @@ import {
 } from "./mapper.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason, canWriteAppsScript, type SheetsWriteConfig } from "./config.ts";
 import { fetchGoogleAccessToken, type ServiceAccountFile } from "./googleJwt.ts";
-import { replaceSheetValues, rowsToValueRange, writeSheetGrid } from "./googleSheets.ts";
+import { replaceSheetValues, rowsToValueRange } from "./googleSheets.ts";
 import { postAppsScriptRewrite } from "./appsScript.ts";
+import { planPagamento, writePagamentoToGoogleSheet } from "./pagamento.ts";
+import { oficialTabName } from "./oficial.ts";
 
 export function recordsForSheet(state: AppState, sessionStartedAt?: string): OperationalRecord[] {
   const sessionMs = parseSessionStart(sessionStartedAt);
@@ -88,20 +90,25 @@ export function formatRewritePreview(input: {
   config: SheetsWriteConfig;
   source: string;
 }): string {
-  const controle = input.config.tabMode === "vehicle_month";
-  const rows = controle
-    ? controleGroupsFromState(input.state, input.config.sessionStartedAt).flatMap((group) => group.rows)
+  const pagamento = input.config.tabMode === "vehicle_month";
+  const plan = pagamento
+    ? planPagamento({
+        state: input.state,
+        sessionStartedAt: input.config.sessionStartedAt,
+        commissionRate: input.config.commissionRate,
+      })
+    : undefined;
+  const rows = pagamento
+    ? plan?.merged ?? []
     : sheetRowsFromState(input.state, input.config.sessionStartedAt);
-  const tabs = controle
-    ? controleGroupsFromState(input.state, input.config.sessionStartedAt)
-        .flatMap((group) => [group.tabName, group.resumoTab])
-        .join(", ")
+  const tabs = pagamento
+    ? [input.config.rascunhoTabName, ...(plan?.oficial.map((item) => item.tabName) ?? [oficialTabName("2026-09")])].join(", ")
     : input.config.tabName;
   const skip = sheetsWriteSkipReason(input.config);
   const session = input.config.sessionStartedAt ?? "todas (sem corte de sessão)";
   return [
     `Fonte: ${input.source}`,
-    `Modo: dry-run (rewrite da aba)`,
+    `Modo: ${pagamento ? "dry-run (rascunho append + oficial se limpo)" : "dry-run (rewrite da aba)"}`,
     `Aba: ${tabs}`,
     `Sessão: ${session}`,
     `Linhas: ${rows.length}`,
@@ -155,28 +162,12 @@ export async function writeStateToGoogleSheet(input: {
     const account = input.account ?? loadServiceAccount(config.credentialsPath);
     const token = await fetchGoogleAccessToken(account, input.fetchImpl);
     if (config.tabMode === "vehicle_month") {
-      const groups = controleGroupsFromState(input.state, config.sessionStartedAt);
-      let rowCount = 0;
-      for (const group of groups) {
-        await writeSheetGrid({
-          spreadsheetId: config.spreadsheetId,
-          tabName: group.tabName,
-          accessToken: token,
-          values: controleToValues(group.rows),
-          rowColors: group.rows.map((row) => (row.fluxo === "entrada" ? "green" : row.fluxo === "saida" ? "red" : "none")),
-          fetchImpl: input.fetchImpl,
-        });
-        await writeSheetGrid({
-          spreadsheetId: config.spreadsheetId,
-          tabName: group.resumoTab,
-          accessToken: token,
-          values: resumoGrid(group.tabName),
-          valueInputOption: "USER_ENTERED",
-          fetchImpl: input.fetchImpl,
-        });
-        rowCount += group.rows.length;
-      }
-      return { ok: true, rowCount };
+      return writePagamentoToGoogleSheet({
+        state: input.state,
+        config,
+        accessToken: token,
+        fetchImpl: input.fetchImpl,
+      });
     }
     const groups = sheetGroupsFromState(input.state, config.sessionStartedAt, config.tabMode, config.tabName);
     let rowCount = 0;

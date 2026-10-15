@@ -4,6 +4,7 @@ import { createOpenWaSender, disabledSender } from "../adapters/hermes/openwaSen
 import { seedState } from "../config/seed.ts";
 import { loadState, saveState } from "../persistence/store.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason } from "../sheets/config.ts";
+import { runGroupSweep } from "../sheets/sweep.ts";
 import { writeSessionToSheet } from "../sheets/write.ts";
 import { describeSendMode, type RuntimeConfig } from "./config.ts";
 import { verifyWebhookHmac, verifyResumeAuth } from "./hmac.ts";
@@ -46,8 +47,15 @@ async function persistState(runtime: RuntimeConfig, state: ReturnType<typeof see
     return;
   }
   const synced = await writeSessionToSheet({ state, config: sheets });
-  if (synced.ok) log("sheets_sync_ok", { rowCount: synced.rowCount });
-  else log("sheets_sync_failed", { reason: synced.reason });
+  if (synced.ok) {
+    log("sheets_sync_ok", { rowCount: synced.rowCount });
+    if ("oficialWritten" in synced && synced.oficialWritten === false) {
+      log("sheets_oficial_skipped", { reason: "rascunho_nao_limpo" });
+    }
+    if ("alerts" in synced && Array.isArray(synced.alerts)) {
+      for (const text of synced.alerts) log("admin_alert_pending", { text });
+    }
+  } else log("sheets_sync_failed", { reason: synced.reason });
 }
 
 export function createAppServer(runtime: RuntimeConfig) {
@@ -151,6 +159,21 @@ export function createAppServer(runtime: RuntimeConfig) {
       json(res, 500, { ok: false, reason: "internal_error" });
     }
   });
+
+  const sheets = loadSheetsWriteConfig();
+  if (sheets.sweepIntervalMs > 0) {
+    setInterval(() => {
+      void runGroupSweep({
+        runtime,
+        state,
+        sheets,
+        sender: runtime.liveSend ? sender : disabledSender(),
+        log,
+      }).catch((error) => {
+        log("sheets_sweep_failed", { message: error instanceof Error ? error.message : "unknown" });
+      });
+    }, sheets.sweepIntervalMs).unref();
+  }
 
   return { server, getState: () => state, resetState: () => { state = applyChannelConfig(seedState(), runtime.channel); } };
 }

@@ -30,6 +30,8 @@ export type RuntimeConfig = {
   port: number;
   storePath: string;
   channelFile?: string;
+  /** JID 1:1 do admin para alerta. Nunca grupo. */
+  adminAlertJid: string;
 };
 
 export type StartupIssue = { code: string; message: string };
@@ -122,6 +124,7 @@ export function loadRuntimeConfig(
     port: Number(env.PORT || 8791),
     storePath: env.STORE_PATH?.trim() || "data/store.json",
     channelFile,
+    adminAlertJid: env.ADMIN_ALERT_JID?.trim() ?? "",
   };
 }
 

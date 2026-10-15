@@ -107,6 +107,78 @@ export function gridColorRequests(
   return requests;
 }
 
+export type CellFill = {
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+  color: { red: number; green: number; blue: number };
+};
+
+export function cellFillRequests(sheetId: number, fills: CellFill[]): unknown[] {
+  return fills.map((fill) => ({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: fill.startRow,
+        endRowIndex: fill.endRow,
+        startColumnIndex: fill.startCol,
+        endColumnIndex: fill.endCol,
+      },
+      cell: { userEnteredFormat: { backgroundColor: fill.color } },
+      fields: "userEnteredFormat.backgroundColor",
+    },
+  }));
+}
+
+export async function readSheetValues(input: {
+  spreadsheetId: string;
+  tabName: string;
+  accessToken: string;
+  fetchImpl?: typeof fetch;
+}): Promise<string[][]> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const headers = { authorization: `Bearer ${input.accessToken}`, "content-type": "application/json" };
+  await ensureSheetTab({
+    spreadsheetId: input.spreadsheetId,
+    tabName: input.tabName,
+    accessToken: input.accessToken,
+    fetchImpl,
+  });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.spreadsheetId)}/values/${encodeURIComponent(sheetClearRange(input.tabName))}`;
+  const res = await fetchImpl(url, { method: "GET", headers });
+  if (!res.ok) throw new Error(`sheets read http ${res.status}`);
+  const body = (await res.json()) as { values?: unknown[][] };
+  return (body.values ?? []).map((row) => (Array.isArray(row) ? row.map((cell) => (cell == null ? "" : String(cell))) : []));
+}
+
+export async function appendSheetValues(input: {
+  spreadsheetId: string;
+  tabName: string;
+  accessToken: string;
+  values: Array<Array<string | number>>;
+  valueInputOption?: "RAW" | "USER_ENTERED";
+  fetchImpl?: typeof fetch;
+}): Promise<void> {
+  if (input.values.length === 0) return;
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const headers = { authorization: `Bearer ${input.accessToken}`, "content-type": "application/json" };
+  await ensureSheetTab({
+    spreadsheetId: input.spreadsheetId,
+    tabName: input.tabName,
+    accessToken: input.accessToken,
+    fetchImpl,
+  });
+  const option = input.valueInputOption ?? "RAW";
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.spreadsheetId)}/values/${encodeURIComponent(sheetRange(input.tabName))}:append?valueInputOption=${option}&insertDataOption=INSERT_ROWS`;
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ range: sheetRange(input.tabName), majorDimension: "ROWS", values: input.values }),
+  });
+  if (!res.ok) throw new Error(`sheets append http ${res.status}`);
+}
+
 export async function writeSheetGrid(input: {
   spreadsheetId: string;
   tabName: string;
@@ -114,6 +186,7 @@ export async function writeSheetGrid(input: {
   values: Array<Array<string | number>>;
   valueInputOption?: "RAW" | "USER_ENTERED";
   rowColors?: Array<"green" | "red" | "none">;
+  cellFills?: CellFill[];
   fetchImpl?: typeof fetch;
 }): Promise<void> {
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -139,12 +212,16 @@ export async function writeSheetGrid(input: {
   if (tab.sheetId === undefined) return;
   const colCount = Math.max(...input.values.map((row) => row.length), 1);
   const rowColors = input.rowColors ?? [];
+  const requests = [
+    ...gridColorRequests(tab.sheetId, colCount, rowColors),
+    ...cellFillRequests(tab.sheetId, input.cellFills ?? []),
+  ];
   const format = await fetchImpl(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.spreadsheetId)}:batchUpdate`,
     {
       method: "POST",
       headers,
-      body: JSON.stringify({ requests: gridColorRequests(tab.sheetId, colCount, rowColors) }),
+      body: JSON.stringify({ requests }),
     },
   );
   if (!format.ok) throw new Error(`sheets format http ${format.status}`);

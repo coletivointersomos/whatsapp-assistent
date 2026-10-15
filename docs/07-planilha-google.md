@@ -1,6 +1,6 @@
 # 07 — Planilha Google
 
-**Status (2026-10-09, VPS):** `SHEETS_TAB_MODE=vehicle_month` grava o **controle de viagens** em `Viagens-TFA7A94-2026-09` (não mexe na aba de teste `registros`) e um `Resumo-…` com COUNTA/SUM/QUERY: quantas viagens, toneladas, para onde foi, o que carregou, RECEBI. Linha RECEBI = verde. Pedágio/balança ficam de fora desta aba. Apps Script no repo é reserva.
+**Status:** `SHEETS_TAB_MODE=vehicle_month` grava a aba **Rascunho** (append por `record_id` / `message_id`, competência do documento ≠ data do Zap) e, se a varredura não achar buraco, reescreve a folha oficial `TFA-MANOEL-AAAA-MM` no layout de pagamento da Alana (viagens, diesel à vista/a prazo, despesas, comissão, A PAGAR, líquido). Pedágio/DANFE/borracharia entram no rascunho; a oficial é que organiza. `npm run sheets:replay -- --setembro` confere o print (frete 54148, diesel 25619,60, despesas 4974). Apps Script no repo é reserva do modo `fixed`.
 
 **Agora não:** pastas Drive por caminhão nem um arquivo por mês. A aba já é o recorte mês+veículo na mesma planilha.
 

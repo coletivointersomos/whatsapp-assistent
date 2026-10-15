@@ -68,6 +68,11 @@ describe("sheets apps script", () => {
         tabName: "registros",
         appsScriptUrl: "https://script.google.com/macros/s/abc/exec",
         appsScriptToken: "secret-token",
+        tabMode: "fixed",
+        rascunhoTabName: "Rascunho",
+        commissionRate: 0.11,
+        adminAlertJid: "",
+        sweepIntervalMs: 0,
       },
       fetchImpl,
     });

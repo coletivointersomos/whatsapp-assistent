@@ -9,9 +9,15 @@ export type SheetsWriteConfig = {
   sessionStartedAt?: string;
   appsScriptUrl: string;
   appsScriptToken: string;
+  rascunhoTabName: string;
+  commissionRate: number;
+  adminAlertJid: string;
+  sweepIntervalMs: number;
 };
 
 export function loadSheetsWriteConfig(env: NodeJS.Dict<string> = process.env): SheetsWriteConfig {
+  const rate = Number(env.SHEETS_COMMISSION_RATE ?? "0.11");
+  const sweep = Number(env.SHEETS_SWEEP_INTERVAL_MS ?? "0");
   return {
     enabled: env.SHEETS_SYNC_ENABLED === "true",
     credentialsPath: env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ?? "",
@@ -21,6 +27,10 @@ export function loadSheetsWriteConfig(env: NodeJS.Dict<string> = process.env): S
     sessionStartedAt: env.ASSISTANT_V2_SESSION_STARTED_AT?.trim() || undefined,
     appsScriptUrl: env.SHEETS_APPS_SCRIPT_URL?.trim() ?? "",
     appsScriptToken: env.SHEETS_APPS_SCRIPT_TOKEN?.trim() ?? "",
+    rascunhoTabName: env.SHEETS_RASCUNHO_TAB?.trim() || "Rascunho",
+    commissionRate: Number.isFinite(rate) && rate > 0 ? rate : 0.11,
+    adminAlertJid: env.ADMIN_ALERT_JID?.trim() ?? "",
+    sweepIntervalMs: Number.isFinite(sweep) && sweep > 0 ? sweep : 0,
   };
 }
 

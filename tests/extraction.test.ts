@@ -156,10 +156,10 @@ describe("extractComplement", () => {
 
     const ate = extractFromText("alo, viagem de ararangua até curitiba, 50 m3 feijao", sentAt);
     assert.equal(ate?.kind, "viagem");
-    assert.equal(ate?.viagem?.origin?.toLowerCase(), "ararangua");
-    assert.equal(ate?.viagem?.destination?.toLowerCase(), "curitiba");
-    assert.equal(ate?.viagem?.material?.toLowerCase(), "feijao");
-    assert.notEqual(ate?.viagem?.material?.toLowerCase(), "curitiba");
+    assert.equal(String(ate?.viagem?.origin ?? "").toLowerCase(), "ararangua");
+    assert.equal(String(ate?.viagem?.destination ?? "").toLowerCase(), "curitiba");
+    assert.equal(String(ate?.viagem?.material ?? "").toLowerCase(), "feijao");
+    assert.notEqual(String(ate?.viagem?.material ?? "").toLowerCase(), "curitiba");
     assert.equal(ate?.viagem?.quantity, 50);
     assert.equal(ate?.viagem?.unit, "m³");
   });
