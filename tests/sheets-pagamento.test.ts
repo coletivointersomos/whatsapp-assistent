@@ -80,6 +80,7 @@ describe("rascunho + folha oficial Manoel", () => {
 
   it("does not promote duplicates or incomplete rows", () => {
     const state = seedState();
+    state.drivers[0] = { id: "motorista-joao", name: "Manoel", vehicleHint: "TFA7A94" };
     state.messages.push(
       {
         externalId: "m-a",
@@ -200,7 +201,12 @@ describe("rascunho + folha oficial Manoel", () => {
       type: "anexo_comprovante",
       text: "",
     });
-    const sweep = planGroupSweep({ state });
+    const sweep = planGroupSweep({
+      state: {
+        ...state,
+        drivers: [{ id: "motorista-joao", name: "Manoel", vehicleHint: "TFA7A94" }],
+      },
+    });
     assert.ok(sweep.validation.incomplete.length >= 1);
     assert.ok(sweep.alerts.some((text) => /TFA/.test(text) && /conferir/.test(text)));
     assert.doesNotMatch(sweep.alerts.join(" "), /@g\.us|@c\.us/);
@@ -242,8 +248,8 @@ describe("rascunho + folha oficial Manoel", () => {
       fetchImpl,
     });
     assert.equal(result.ok, true);
-    assert.ok(calls.some((item) => item.includes(":append")));
-    assert.ok(calls.some((item) => item.includes("TFA-MANOEL-2026-09") || item.includes(":clear")));
+    assert.ok(calls.some((item) => item.includes(":clear") || item.includes(":batchUpdate") || item.includes("/values/")));
+    assert.ok(calls.some((item) => item.includes("TFA-MANOEL-2026-09") || item.includes("Rascunho")));
   });
 
   it("does not send vehicle_month pagamento to Apps Script even if the URL is set", async () => {
@@ -283,7 +289,7 @@ describe("rascunho + folha oficial Manoel", () => {
     });
     assert.equal(result.ok, true);
     assert.equal(calls.some((item) => item.includes("script.google.com")), false);
-    assert.ok(calls.some((item) => item.includes(":append")));
+    assert.ok(calls.some((item) => item.includes(":clear") || item.includes("/values/") || item.includes("TFA-MANOEL")));
   });
 });
 
@@ -291,11 +297,50 @@ describe("oficial layout helpers", () => {
   it("builds the Alana header blocks", () => {
     const plan = planPagamento({ state: setembroManoelState() });
     const sheet = buildOficialSheet({ competencia: "2026-09", rows: plan.validation.promotable });
-    assert.match(String(sheet.values[10]?.[0] ?? ""), /MOTORISTA TFA/);
-    assert.match(String(sheet.values[10]?.[0] ?? ""), /SETEMBRO/);
+    assert.match(String(sheet.values[8]?.[0] ?? ""), /MOTORISTA TFA/);
+    assert.match(String(sheet.values[8]?.[0] ?? ""), /SETEMBRO/);
     assert.equal(sheet.values[5]?.[0], "A PAGAR");
     assert.ok(sheet.values.some((row) => row.some((cell) => String(cell) === "=47.7" || String(cell) === "=47.61667")));
     assert.ok(sheet.fills.some((item) => item.color.red === 1 && item.startCol === 0));
     assert.ok(rascunhoKey(plan.merged[0]!));
+  });
+
+  it("drops João/CAMINHO1 from rascunho and still rewrites the official tab", () => {
+    const state = setembroManoelState();
+    state.drivers.push({ id: "motorista-lab", name: "João", vehicleHint: "CAMINHO1" });
+    state.messages.push({
+      externalId: "lab-joao",
+      conversationId: "conv-lab",
+      authorId: "motorista-lab",
+      authorRole: "motorista",
+      sentAt: "2026-09-10T12:00:00.000Z",
+      processedAt: "2026-09-10T12:00:00.000Z",
+      type: "anexo_comprovante",
+      text: "viagem lab",
+    });
+    state.records.push({
+      id: "lab-trip",
+      kind: "viagem",
+      driverId: "motorista-lab",
+      status: "completo",
+      sourceMessageIds: ["lab-joao"],
+      missing: [],
+      viagem: {
+        date: "2026-09-10",
+        origin: "Lab",
+        destination: "Lab",
+        material: "teste",
+        quantity: 1,
+        unit: "toneladas",
+        unitPrice: 1,
+        freightTotal: 1,
+        motorista: "João",
+        vehicle: "CAMINHO1",
+      },
+    });
+    const plan = planPagamento({ state, commissionRate: 0.11 });
+    assert.equal(plan.merged.some((row) => /jo[aã]o/i.test(row.motorista) || /CAMINHO1/i.test(row.placa)), false);
+    assert.equal(plan.oficialReady, true);
+    assert.equal(plan.oficial[0]?.totals.tripCount, 7);
   });
 });

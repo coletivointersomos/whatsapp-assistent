@@ -119,7 +119,9 @@ export function buildOficialSheet(input: {
   placa?: string;
 }): OficialSheet {
   const rate = input.commissionRate ?? 0.11;
-  const trips = input.rows.filter((row) => row.tipo === "viagem").sort((a, b) => a.data_doc.localeCompare(b.data_doc));
+  const trips = input.rows
+    .filter((row) => row.tipo === "viagem" && row.origem && row.destino)
+    .sort((a, b) => a.data_doc.localeCompare(b.data_doc));
   const vista = input.rows.filter((row) => row.tipo === "abastecimento_vista");
   const prazo = input.rows.filter((row) => row.tipo === "abastecimento_prazo");
   const despesas = input.rows.filter((row) => row.tipo === "despesa");
@@ -141,19 +143,26 @@ export function buildOficialSheet(input: {
     values.push(row);
   };
 
-  // Left: pagamento. Right: depósitos + totais. Numbers as =n so locale cannot date-parse.
-  pushes(["COMISSÃO", "", "", "", "", "", "DEPOSITOU EM CONTA", "", "", "RECEBEU DE FRETE", ""]);
-  pushes(["INSS+IRRF", sheetNum(0), "", "", "", "", "DATA", "VALOR"]);
-  pushes(["VALE", sheetNum(0)]);
-  pushes(["ADIANTAMENTO", sheetNum(0)]);
-  pushes([]);
-  pushes(["A PAGAR", "", "", "", "", "", "", "", "", "ABASTECEU", ""]);
-  pushes(["", "", "", "", "", "", "", "", "", "DESPESAS", ""]);
-  pushes(["", "", "", "", "", "", "", "", "", "LÍQUIDO", ""]);
-  pushes(["", "", "", "", "", "", "", "", "", "ainda com o Sr. Manoel", ""]);
-  pushes([]);
-  pushes([`MOTORISTA TFA — ${monthLabel(input.competencia)}`, "", "", motorista, placa]);
-  pushes(["VIAGENS"]);
+  const blank: Array<string | number> = ["", "", "", "", "", "", "", "", "", "", ""];
+  const row = (cells: Array<string | number>) => {
+    const next = [...blank];
+    cells.forEach((cell, i) => {
+      next[i] = cell;
+    });
+    pushes(next);
+  };
+
+  row(["COMISSÃO", "", "", "", "", "", "DEPOSITOU EM CONTA", "", "", "RECEBEU DE FRETE", ""]);
+  row(["INSS+IRRF", sheetNum(0), "", "", "", "", "DATA", "VALOR", "", "ABASTECEU", ""]);
+  row(["VALE", sheetNum(0), "", "", "", "", "", "", "", "DESPESAS", ""]);
+  row(["ADIANTAMENTO", sheetNum(0)]);
+  row([]);
+  row(["A PAGAR", "", "", "", "", "", "", "", "", "LÍQUIDO", ""]);
+  row(["", "", "", "", "", "", "", "", "", "ainda com o Sr. Manoel", ""]);
+  row([]);
+  row([`MOTORISTA TFA — ${monthLabel(input.competencia)}`, "", "", `${motorista}`, placa]);
+  row(["TFA — MANOEL"]);
+  row(["VIAGENS"]);
   pushes(["DATA", "ORIGEM", "DESTINO", "MATERIAL", "TONELADAS", "t", "VALOR", "TOTAL", "%", "COMISSÃO", "OBS"]);
 
   const tripHeaderRow = values.length;
@@ -218,24 +227,25 @@ export function buildOficialSheet(input: {
 
   values[0][1] = commissionFormula;
   values[0][10] = freightFormula;
+  values[1][10] = dieselFormula;
+  values[2][10] = expenseFormula;
   values[5][1] = "=ROUND(B1-B2-B3-B4,2)";
-  values[5][10] = dieselFormula;
-  values[6][10] = expenseFormula;
-  values[7][10] = "=ROUND(K1-K6-K7,2)";
-  deposits.forEach((row, index) => {
-    while (values.length <= 2 + index) values.push([]);
-    values[2 + index][6] = row.data_doc;
-    values[2 + index][7] = sheetNum(row.valor);
+  values[5][10] = "=ROUND(K1-K2-K3,2)";
+  deposits.forEach((item, index) => {
+    const target = 2 + index;
+    if (!values[target]) return;
+    values[target][6] = item.data_doc;
+    values[target][7] = sheetNum(item.valor);
   });
   const lastDepositRow = deposits.length ? 2 + deposits.length : 0;
-  values[8][10] = lastDepositRow ? `=ROUND(K8-SUM(H3:H${lastDepositRow}),2)` : "=K8";
+  values[6][10] = lastDepositRow ? `=ROUND(K6-SUM(H3:H${lastDepositRow}),2)` : "=K6";
 
   const fills: CellFill[] = [
-    fill(0, 5, 0, 2, HEADER),
+    fill(0, 4, 0, 2, HEADER),
     fill(5, 6, 0, 2, YELLOW),
-    fill(0, 2, 6, 8, BLUE),
-    fill(0, 9, 9, 11, BLUE),
-    fill(10, 13, 0, 11, GREEN),
+    fill(0, 7, 6, 8, BLUE),
+    fill(0, 7, 9, 11, BLUE),
+    fill(8, 12, 0, 11, GREEN),
   ];
   if (vistaEnd >= vistaStart) fills.push(fill(vistaStart - 2, vistaEnd, 0, 6, RED));
   if (prazoEnd >= prazoStart) fills.push(fill(prazoStart - 2, prazoEnd, 0, 6, RED));

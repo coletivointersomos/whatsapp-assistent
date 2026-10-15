@@ -1,13 +1,10 @@
 import type { AppState } from "../domain/types.ts";
 import type { SheetsWriteConfig } from "./config.ts";
-import {
-  appendSheetValues,
-  readSheetValues,
-  writeSheetGrid,
-} from "./googleSheets.ts";
+import { readSheetValues, writeSheetGrid } from "./googleSheets.ts";
 import { buildOficialSheet, groupPromotableByCompetencia, type OficialSheet } from "./oficial.ts";
 import {
   buildRascunhoFromState,
+  isManoelTfaRow,
   markFingerprintDuplicates,
   mergeRascunho,
   parseRascunhoGrid,
@@ -31,27 +28,26 @@ export function planPagamento(input: {
   sessionStartedAt?: string;
   commissionRate?: number;
 }): PagamentoPlan {
-  const incoming = buildRascunhoFromState(input.state, input.sessionStartedAt);
-  const { merged: mergedRaw, toInsert } = mergeRascunho(input.existing ?? [], incoming);
+  const incoming = buildRascunhoFromState(input.state, input.sessionStartedAt).filter(isManoelTfaRow);
+  const existing = (input.existing ?? []).filter(isManoelTfaRow);
+  const { merged: mergedRaw, toInsert } = mergeRascunho(existing, incoming);
   const merged = markFingerprintDuplicates(mergedRaw);
   const validation = validateRascunho({
     state: input.state,
     rows: merged,
     sessionStartedAt: input.sessionStartedAt,
   });
-  const oficialReady = validation.forgotten.length === 0;
   const oficial: OficialSheet[] = [];
-  if (oficialReady) {
-    for (const [competencia, rows] of groupPromotableByCompetencia(validation.promotable)) {
-      oficial.push(
-        buildOficialSheet({
-          competencia,
-          rows,
-          commissionRate: input.commissionRate,
-        }),
-      );
-    }
+  for (const [competencia, rows] of groupPromotableByCompetencia(validation.promotable)) {
+    oficial.push(
+      buildOficialSheet({
+        competencia,
+        rows,
+        commissionRate: input.commissionRate,
+      }),
+    );
   }
+  const oficialReady = oficial.length > 0;
   return {
     merged,
     toInsert: toInsert.map((row) => merged.find((item) => item.record_id === row.record_id && item.message_id === row.message_id) ?? row),
@@ -83,31 +79,19 @@ export async function writePagamentoToGoogleSheet(input: {
     fetchImpl: input.fetchImpl,
   });
   const existing = parseRascunhoGrid(existingValues);
-  const hasHeader = existingValues[0]?.[0] === "message_id";
   const plan = planPagamento({
     state: input.state,
     existing,
     commissionRate: input.config.commissionRate,
   });
 
-  if (!hasHeader && plan.merged.length) {
-    await appendSheetValues({
-      spreadsheetId: input.config.spreadsheetId,
-      tabName: input.config.rascunhoTabName,
-      accessToken: input.accessToken,
-      values: rascunhoToValues(plan.merged),
-      fetchImpl: input.fetchImpl,
-    });
-  } else if (plan.toInsert.length) {
-    const body = rascunhoToValues(plan.toInsert).slice(1);
-    await appendSheetValues({
-      spreadsheetId: input.config.spreadsheetId,
-      tabName: input.config.rascunhoTabName,
-      accessToken: input.accessToken,
-      values: body,
-      fetchImpl: input.fetchImpl,
-    });
-  }
+  await writeSheetGrid({
+    spreadsheetId: input.config.spreadsheetId,
+    tabName: input.config.rascunhoTabName,
+    accessToken: input.accessToken,
+    values: rascunhoToValues(plan.merged),
+    fetchImpl: input.fetchImpl,
+  });
 
   const oficialTabs: string[] = [];
   if (plan.oficialReady) {
@@ -128,7 +112,7 @@ export async function writePagamentoToGoogleSheet(input: {
   return {
     ok: true,
     rowCount: plan.merged.length,
-    inserted: !hasHeader ? plan.merged.length : plan.toInsert.length,
+    inserted: plan.merged.length,
     oficialTabs,
     oficialWritten: plan.oficialReady,
     alerts: plan.alerts,

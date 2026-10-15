@@ -3,7 +3,9 @@ import {
   buildRascunhoFromState,
   isOperationalStoreMessage,
   isManoelTfaRow,
+  messageToRascunho,
   rascunhoKey,
+  recordToRascunho,
   type RascunhoRow,
 } from "./rascunho.ts";
 
@@ -61,6 +63,13 @@ export function validateRascunho(input: {
   for (const message of messages) {
     if (!isOperationalStoreMessage(message, input.state.botIds)) continue;
     if (covered.has(message.externalId)) continue;
+    const related = input.state.records.filter((record) => record.sourceMessageIds.includes(message.externalId));
+    const manoelFromRecords = related.some((record) => {
+      const row = recordToRascunho(input.state, record);
+      return Boolean(row && isManoelTfaRow(row));
+    });
+    const orphan = related.length === 0 && isManoelTfaRow(messageToRascunho(input.state, message));
+    if (!manoelFromRecords && !orphan) continue;
     issues.push({
       kind: "esquecido",
       messageId: message.externalId,
