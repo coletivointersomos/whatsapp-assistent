@@ -15,7 +15,8 @@ import { transcribeAudioInbound } from "../audio/transcribeInbound.ts";
 import { ingestPdfInbound, isPdfMime, type PdfRunner } from "../documents/pdf.ts";
 import { archiveToDrive, buildArchiveItems } from "../drive/archive.ts";
 import { driveSkipReason, loadDriveConfig, type DriveConfig } from "../drive/config.ts";
-import { createDriveClient, serviceAccountTokenProvider, type DriveClient } from "../drive/googleDrive.ts";
+import { driveTokenProvider } from "../drive/auth.ts";
+import { createDriveClient, type DriveClient } from "../drive/googleDrive.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -39,10 +40,11 @@ export function shouldSyncSheetsAfter(processed: Pick<ProcessResult, "decision" 
   return true;
 }
 
-let driveClientCache: { path: string; client: DriveClient } | undefined;
-function defaultDriveClient(credentialsPath: string): DriveClient {
-  if (driveClientCache?.path !== credentialsPath) {
-    driveClientCache = { path: credentialsPath, client: createDriveClient({ token: serviceAccountTokenProvider(credentialsPath) }) };
+let driveClientCache: { key: string; client: DriveClient } | undefined;
+function defaultDriveClient(config: DriveConfig): DriveClient {
+  const key = `${config.auth ?? "service_account"}|${config.credentialsPath}|${config.oauthClientFile ?? ""}|${config.oauthTokenFile ?? ""}`;
+  if (driveClientCache?.key !== key) {
+    driveClientCache = { key, client: createDriveClient({ token: driveTokenProvider(config) }) };
   }
   return driveClientCache.client;
 }
@@ -236,7 +238,7 @@ export async function handleInboundPayload(input: {
       originalName: typeof envelope.data?.media?.filename === "string" ? envelope.data.media.filename : undefined,
     });
     if (items.length) {
-      const client = input.drive?.client ?? defaultDriveClient(driveConfig.credentialsPath);
+      const client = input.drive?.client ?? defaultDriveClient(driveConfig);
       const job = archiveToDrive({ client, rootFolderId: driveConfig.rootFolderId, items, log }).catch((error: unknown) => {
         log("drive_failed", { reason: error instanceof Error ? error.message.slice(0, 80) : "unknown" });
         return [];

@@ -1,7 +1,8 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DRIVE_TEST_FOLDER, loadDriveConfig } from "../drive/config.ts";
-import { createDriveClient, DriveError, FOLDER_MIME, serviceAccountTokenProvider } from "../drive/googleDrive.ts";
+import { driveTokenProvider } from "../drive/auth.ts";
+import { createDriveClient, DriveError, FOLDER_MIME } from "../drive/googleDrive.ts";
 
 /**
  * Teste do Drive: arquivos de teste vão SÓ para <raiz>/_teste-hermes (só criar).
@@ -10,11 +11,11 @@ import { createDriveClient, DriveError, FOLDER_MIME, serviceAccountTokenProvider
  */
 export async function main(args: string[]): Promise<number> {
   const config = loadDriveConfig(process.env);
-  if (!config.credentialsPath) {
+  if (config.auth !== "oauth_user" && !config.credentialsPath) {
     process.stderr.write("erro: GOOGLE_APPLICATION_CREDENTIALS vazio\n");
     return 2;
   }
-  const drive = createDriveClient({ token: serviceAccountTokenProvider(config.credentialsPath) });
+  const drive = createDriveClient({ token: driveTokenProvider(config) });
   try {
     const found = await drive.listChildren(config.rootFolderId, { name: DRIVE_TEST_FOLDER, foldersOnly: true });
     if (args.includes("--dry-run")) {
