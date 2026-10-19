@@ -1,6 +1,6 @@
 import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
-import { fetchOpenWaImage } from "../adapters/hermes/openwaMedia.ts";
+import { decodePlainText, fetchOpenWaImage, isPlainTextMime } from "../adapters/hermes/openwaMedia.ts";
 import type { OpenWaEnvelope } from "../adapters/hermes/types.ts";
 import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import { createAssistantProvider } from "../assistant/provider.ts";
@@ -69,9 +69,19 @@ export async function handleInboundPayload(input: {
       log("vision_media_missing", { type: inbound.type });
     }
   }
+  if (inbound.media && isPlainTextMime(inbound.media.mime)) {
+    const decoded = decodePlainText(inbound.media.base64).trim();
+    inbound = {
+      ...inbound,
+      type: "texto",
+      text: [inbound.text, decoded].filter(Boolean).join("\n").slice(0, 80_000),
+      media: undefined,
+    };
+    log("plain_text_ingested", { chars: decoded.length });
+  }
   const nluConfig = loadNluConfig(process.env);
   const v2Config = loadAssistantV2Config(process.env);
-  if (inbound.media?.base64) {
+  if (inbound.media?.base64 && inbound.media.mime.startsWith("image/")) {
     log(nluConfig.visionEnabled ? "vision_armed" : "vision_disabled", { mime: inbound.media.mime });
   }
   const httpHooks = {

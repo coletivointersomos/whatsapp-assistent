@@ -1,7 +1,7 @@
 import type { InboundMessage, MessageType } from "../../domain/types.ts";
 import { jidInList } from "../../domain/identity.ts";
 import { isGroupJid, resolveChannelAuthorRole } from "./identity.ts";
-import { mediaFromWebhook } from "./openwaMedia.ts";
+import { decodePlainText, isPlainTextMime, isVisionImage, mediaFromWebhook } from "./openwaMedia.ts";
 import type { ChannelConfig, OpenWaEnvelope, OpenWaMessageData } from "./types.ts";
 
 export type NormalizeOk = { ok: true; inbound: InboundMessage };
@@ -22,9 +22,13 @@ function isJid(value: unknown): value is string {
 
 function messageType(kind: string | undefined, mimetype?: string): MessageType {
   const k = (kind ?? "chat").toLowerCase();
-  if (k === "image" || (mimetype ?? "").startsWith("image/")) return "anexo_comprovante";
-  if (k === "audio" || k === "ptt" || k === "voice" || (mimetype ?? "").startsWith("audio/")) {
+  const mime = (mimetype ?? "").toLowerCase();
+  if (k === "image" || mime.startsWith("image/")) return "anexo_comprovante";
+  if (k === "audio" || k === "ptt" || k === "voice" || mime.startsWith("audio/")) {
     return "audio_info";
+  }
+  if (k === "document" || k === "documentwithcaption" || mime === "application/pdf" || mime.startsWith("text/")) {
+    return "anexo_comprovante";
   }
   return "texto";
 }
@@ -92,10 +96,15 @@ export function normalizeOpenWaEnvelope(
   const mid = data.id || data.messageId;
   if (!isJid(mid)) return { ok: false, reason: "invalid_payload" };
 
-  const text = (data.body || data.caption || "").trim() || undefined;
   const mimetype = data.media?.mimetype;
   const type = messageType(data.type, mimetype);
   const authorRole = resolveChannelAuthorRole(authorId, channel, allowed);
+  const media = type === "anexo_comprovante" ? mediaFromWebhook(data, data.type) : undefined;
+  let text = (data.body || data.caption || "").trim() || undefined;
+  if (media && isPlainTextMime(media.mime)) {
+    const decoded = decodePlainText(media.base64).trim();
+    if (decoded) text = [text, decoded].filter(Boolean).join("\n").slice(0, 80_000);
+  }
 
   const inbound: InboundMessage = {
     externalId: mid,
@@ -104,10 +113,10 @@ export function normalizeOpenWaEnvelope(
     authorRole,
     participantId: authorId,
     sentAt: sentAtIso(data.timestamp),
-    type,
+    type: media && isPlainTextMime(media.mime) ? "texto" : type,
     text,
-    attachmentRef: type === "texto" ? undefined : mimetype || type,
-    media: type === "anexo_comprovante" ? mediaFromWebhook(data, data.type) : undefined,
+    attachmentRef: type === "texto" && !media ? undefined : mimetype || data.body || type,
+    media: media && isVisionImage(media.mime) ? media : undefined,
     raw: envelope,
   };
   return { ok: true, inbound };

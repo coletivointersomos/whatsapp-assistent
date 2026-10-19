@@ -29,13 +29,35 @@ function stringField(value: unknown): string | undefined {
   return undefined;
 }
 
+export function isVisionImage(mime: string | undefined): boolean {
+  return (mime ?? "").startsWith("image/");
+}
+
+export function isPlainTextMime(mime: string | undefined): boolean {
+  const m = (mime ?? "").toLowerCase();
+  return m.startsWith("text/") || m === "application/json";
+}
+
+export function isAcceptedDocumentMime(mime: string | undefined): boolean {
+  const m = (mime ?? "").toLowerCase();
+  return isVisionImage(m) || isPlainTextMime(m) || m === "application/pdf";
+}
+
+export function decodePlainText(base64: string): string {
+  try {
+    return Buffer.from(base64.replace(/\s/g, ""), "base64").toString("utf8").slice(0, 80_000);
+  } catch {
+    return "";
+  }
+}
+
 export function mediaFromWebhook(data: OpenWaMessageData | undefined, kind?: string): ResolvedMedia | undefined {
   const blob = data?.media?.data;
   if (!blob) return undefined;
   const parsed = stripDataUrl(blob);
   if (!parsed) return undefined;
   const mime = data?.media?.mimetype || parsed.mime || (kind === "image" ? "image/jpeg" : parsed.mime);
-  if (!mime.startsWith("image/")) return undefined;
+  if (!isAcceptedDocumentMime(mime)) return undefined;
   const bytes = Math.floor((parsed.base64.length * 3) / 4);
   if (bytes > MAX_MEDIA_BYTES) return undefined;
   return { mime, base64: parsed.base64, source: "webhook" };
@@ -120,7 +142,9 @@ export async function fetchOpenWaImage(input: {
       if (!parsed.base64) continue;
       const bytes = Math.floor((parsed.base64.length * 3) / 4);
       if (bytes > MAX_MEDIA_BYTES) continue;
-      return { mime: parsed.mime || "image/jpeg", base64: parsed.base64, source: "openwa" };
+      const mime = parsed.mime || "image/jpeg";
+      if (!isAcceptedDocumentMime(mime)) continue;
+      return { mime, base64: parsed.base64, source: "openwa" };
     } catch {
       /* tenta o próximo path do OpenWA */
     }

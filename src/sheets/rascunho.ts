@@ -41,6 +41,7 @@ export type RascunhoRow = {
   record_id: string;
   fingerprint: string;
   campos_brutos: string;
+  arquivo_origem: string;
 };
 
 export const RASCUNHO_COLUMNS: (keyof RascunhoRow)[] = [
@@ -65,6 +66,7 @@ export const RASCUNHO_COLUMNS: (keyof RascunhoRow)[] = [
   "record_id",
   "fingerprint",
   "campos_brutos",
+  "arquivo_origem",
 ];
 
 export function rascunhoKey(row: Pick<RascunhoRow, "record_id" | "message_id">): string {
@@ -105,6 +107,7 @@ export function parseRascunhoGrid(values: string[][]): RascunhoRow[] {
       record_id: col(row, "record_id"),
       fingerprint: col(row, "fingerprint"),
       campos_brutos: col(row, "campos_brutos"),
+      arquivo_origem: col(row, "arquivo_origem"),
     };
     if (!parsed.fingerprint) parsed.fingerprint = rascunhoFingerprint(parsed);
     return parsed;
@@ -127,7 +130,7 @@ export function competenciaFromDoc(dataDoc: string, enviadoEm?: string): string 
   return "";
 }
 
-export function rascunhoFingerprint(row: Pick<RascunhoRow, "competencia" | "tipo" | "data_doc" | "origem" | "destino" | "posto" | "valor" | "descricao">): string {
+export function rascunhoFingerprint(row: Pick<RascunhoRow, "competencia" | "tipo" | "data_doc" | "origem" | "destino" | "posto" | "valor" | "descricao" | "placa">): string {
   const norm = (value: string) =>
     value
       .normalize("NFD")
@@ -135,6 +138,7 @@ export function rascunhoFingerprint(row: Pick<RascunhoRow, "competencia" | "tipo
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
+  const money = String(row.valor ?? "").replace(/[^\d]/g, "");
   return [
     norm(row.competencia),
     norm(row.tipo),
@@ -142,9 +146,15 @@ export function rascunhoFingerprint(row: Pick<RascunhoRow, "competencia" | "tipo
     norm(row.origem),
     norm(row.destino),
     norm(row.posto),
-    norm(row.valor),
-    norm(row.descricao),
+    money,
+    normalizePlaca(row.placa),
   ].join("|");
+}
+
+function arquivoOrigem(message?: StoredMessage): string {
+  const id = message?.externalId?.trim() || "";
+  const ref = message?.attachmentRef?.trim() || message?.media?.mime || "";
+  return [id, ref].filter(Boolean).join(" | ");
 }
 
 function messageSource(message?: StoredMessage): string {
@@ -262,6 +272,7 @@ export function recordToRascunho(state: AppState, record: OperationalRecord): Ra
       missing: record.missing,
       note: mapped.observacoes,
     }),
+    arquivo_origem: arquivoOrigem(message),
   };
   row.competencia = competenciaFromDoc(row.data_doc, row.enviado_em);
   row.fingerprint = rascunhoFingerprint(row);
@@ -292,6 +303,7 @@ export function messageToRascunho(state: AppState, message: StoredMessage): Rasc
     record_id: "",
     fingerprint: "",
     campos_brutos: JSON.stringify({ type: message.type, text: message.text ?? "" }),
+    arquivo_origem: arquivoOrigem(message),
   };
   row.fingerprint = rascunhoFingerprint(row);
   return row;

@@ -9,6 +9,7 @@ import {
   buildRascunhoFromState,
   competenciaFromDoc,
   mergeRascunho,
+  rascunhoFingerprint,
   rascunhoKey,
 } from "../src/sheets/rascunho.ts";
 import { setembroManoelState } from "../src/sheets/setembroManoel.ts";
@@ -342,5 +343,21 @@ describe("oficial layout helpers", () => {
     assert.equal(plan.merged.some((row) => /jo[aã]o/i.test(row.motorista) || /CAMINHO1/i.test(row.placa)), false);
     assert.equal(plan.oficialReady, true);
     assert.equal(plan.oficial[0]?.totals.tripCount, 7);
+  });
+
+  it("collapses TFA7A54 OCR into the same fingerprint as TFA7A94", () => {
+    const a = {
+      competencia: "2026-09",
+      tipo: "viagem" as const,
+      data_doc: "2026-09-08",
+      origem: "Laranjeiras",
+      destino: "F. Santana",
+      posto: "",
+      valor: "5.724",
+      descricao: "RECEBI",
+      placa: "TFA7A54",
+    };
+    const b = { ...a, placa: "TFA7A94", valor: "5724" };
+    assert.equal(rascunhoFingerprint(a), rascunhoFingerprint(b));
   });
 });

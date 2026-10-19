@@ -98,6 +98,32 @@ describe("hermes/openwa adapter", () => {
     if (audio.ok) assert.equal(audio.inbound.type, "audio_info");
   });
 
+  it("reads a WhatsApp .txt document into message text", () => {
+    const payload = Buffer.from(
+      "[28/09/2026, 14:06:07] Manoel: Esse depósito aí é o saldo de fretes. 10000 por carro. Favor conferir.\n".repeat(3),
+      "utf8",
+    ).toString("base64");
+    const result = normalizeOpenWaEnvelope(
+      env({
+        id: "txt-1",
+        chatId: "grupo-lab-teste@g.us",
+        author: "chat-motorista-1@c.us",
+        fromMe: false,
+        isGroup: true,
+        type: "document",
+        body: "_chat.txt",
+        timestamp: 1757520000,
+        media: { mimetype: "text/plain", data: payload },
+      }),
+      channel,
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.inbound.type, "texto");
+    assert.match(result.inbound.text ?? "", /10000 por carro/);
+    assert.equal(result.inbound.media, undefined);
+  });
+
   it("rejects unauthorized conversation before the engine", () => {
     const result = normalizeOpenWaEnvelope(
       env({
