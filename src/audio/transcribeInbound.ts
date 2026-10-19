@@ -76,6 +76,7 @@ export async function transcribeAudioInbound(input: {
     const client = input.asr ?? createAlibabaAsr(config, input.fetchImpl);
     const transcript = (await client.transcribe({ data: audio.base64, mimetype: audio.mime })).trim();
     if (!transcript) return fail("asr_transcript_missing");
+    // Máscara pelo ponto único (privacy/pii.ts → maskPii), igual à 1b: desligar lá desliga aqui.
     const text = maskPii(transcript).slice(0, 8_000);
     log("asr_ok", { source: audio.source, mime: audio.mime, bytes: audio.bytes, transcriptChars: text.length, ms: Date.now() - started });
     return { ...inbound, text };

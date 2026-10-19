@@ -12,7 +12,6 @@ import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provi
 import type { SpeechToText } from "../audio/alibabaAsr.ts";
 import { loadAsrConfig, type AsrRuntimeConfig } from "../audio/config.ts";
 import { transcribeAudioInbound } from "../audio/transcribeInbound.ts";
-import { maskIdForLog } from "../privacy/pii.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -63,7 +62,7 @@ export async function handleInboundPayload(input: {
 
   const normalized = normalizeOpenWaEnvelope(envelope, runtime.channel);
   if (!normalized.ok) {
-    log("inbound_blocked", { reason: normalized.reason, chatId: maskIdForLog(envelope.data?.chatId) });
+    log("inbound_blocked", { reason: normalized.reason, chatId: envelope.data?.chatId });
     return {
       httpStatus: 200,
       body: { ok: false, processed: false, reason: normalized.reason, send: "blocked" },

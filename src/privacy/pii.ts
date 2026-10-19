@@ -152,12 +152,3 @@ export function maskFields<T extends Record<string, unknown>>(obj: T, keys: read
   return next ?? obj;
 }
 
-/** Id de conversa para log: JID → `…1234@g.us`; outro id numérico → `…1234`. */
-export function maskIdForLog(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value) return undefined;
-  const jid = maskJidsInText(value);
-  if (jid !== value) return jid;
-  const d = digits(value);
-  if (d.length > 4) return `${MASK_MARK}${d.slice(-4)}`;
-  return value.length > 12 ? `${value.slice(0, 4)}${MASK_MARK}` : value;
-}
