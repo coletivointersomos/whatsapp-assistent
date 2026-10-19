@@ -1,4 +1,5 @@
 import { maskJid } from "../inspect/mask.ts";
+import { maskFields, maskJidsInText, MASK_MARK } from "../privacy/pii.ts";
 import type { AppState, OperationalRecord, StoredMessage } from "../domain/types.ts";
 
 export type SheetRow = {
@@ -170,7 +171,26 @@ export function recordToRow(state: AppState, record: OperationalRecord): SheetRo
     row.observacoes = cell(f.note);
   }
 
-  return row;
+  return maskSheetRowPii(row);
+}
+
+/** Colunas de texto livre do SheetRow que passam pela máscara de PII. */
+const SHEET_ROW_TEXT: (keyof SheetRow)[] = [
+  "observacoes",
+  "posto_local",
+  "pagamento",
+  "descricao_despesa",
+  "pagamento_despesa",
+  "origem",
+  "destino",
+  "material",
+];
+
+/** PII fora da planilha: texto livre mascarado; record_id só com JID mascarado (continua único). */
+export function maskSheetRowPii(row: SheetRow): SheetRow {
+  const masked = maskFields(row, SHEET_ROW_TEXT);
+  const recordId = maskJidsInText(masked.record_id);
+  return recordId === masked.record_id ? masked : { ...masked, record_id: recordId };
 }
 
 export function recordsToRows(state: AppState): SheetRow[] {
@@ -300,10 +320,17 @@ export function formatSacosConta(note: string): { valor: number; observacao: str
   return { valor: sack.total, observacao: `${conta}${extra}` };
 }
 
+/** Pedaços já mascarados (…1234, ***.***.***-12) nunca são dinheiro. */
+const MASKED_TOKEN = new RegExp(String.raw`${MASK_MARK}[^\s,;]*|\*{3}\.\*{3}\.\*{3}-[\d*]{2}`, "g");
+
 export function parseBrl(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (value === undefined || value === null) return undefined;
-  const s = String(value).replace(/r\$/gi, " ").replace(/\s+/g, " ").trim();
+  const s = String(value)
+    .replace(MASKED_TOKEN, " ")
+    .replace(/r\$/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const match = s.match(/(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+,\d{2}|\d{4,})/);
   if (!match) return undefined;
   let token = match[1];

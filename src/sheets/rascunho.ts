@@ -8,6 +8,7 @@ import {
   parseBrl,
   recordToRow,
 } from "./mapper.ts";
+import { maskFields, maskJidsInText } from "../privacy/pii.ts";
 
 export type RascunhoTipo =
   | "viagem"
@@ -177,6 +178,34 @@ function abastecimentoTipo(payment?: string): RascunhoTipo {
 
 function despesaTipo(description?: string, note?: string): RascunhoTipo {
   return /dep[oó]sit/i.test(`${description ?? ""} ${note ?? ""}`) ? "deposito" : "despesa";
+}
+
+const RASCUNHO_TEXT: (keyof RascunhoRow)[] = [
+  "origem",
+  "destino",
+  "material",
+  "posto",
+  "descricao",
+  "pagamento",
+  "campos_brutos",
+];
+const RASCUNHO_IDS: (keyof RascunhoRow)[] = ["message_id", "record_id", "arquivo_origem"];
+
+/**
+ * PII fora do rascunho/oficial: texto livre mascarado; ids só com JID mascarado
+ * (o hash da mensagem fica, então a chave continua única e estável entre leituras).
+ * Idempotente: linha já mascarada volta igual.
+ */
+export function maskRascunhoRowPii(row: RascunhoRow): RascunhoRow {
+  let next = maskFields(row, RASCUNHO_TEXT);
+  for (const key of RASCUNHO_IDS) {
+    const value = next[key];
+    const masked = maskJidsInText(value);
+    if (masked !== value) next = { ...next, [key]: masked };
+  }
+  if (next === row) return row;
+  const printChanged = (["origem", "destino", "posto"] as const).some((col) => next[col] !== row[col]);
+  return printChanged ? { ...next, fingerprint: rascunhoFingerprint(next) } : next;
 }
 
 export function isManoelTfaRow(row: Pick<RascunhoRow, "motorista" | "placa">): boolean {

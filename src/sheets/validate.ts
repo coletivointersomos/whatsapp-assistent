@@ -10,6 +10,7 @@ import {
   recordToRascunho,
   type RascunhoRow,
 } from "./rascunho.ts";
+import { maskJidsInText } from "../privacy/pii.ts";
 
 export type RascunhoIssue = {
   kind: "esquecido" | "duplicado" | "incompleto" | "valor_repetido";
@@ -83,7 +84,7 @@ export function validateRascunho(input: {
   const messages = input.state.messages.filter((item) => !sessionMs || Date.parse(item.sentAt) >= sessionMs);
   for (const message of messages) {
     if (!isOperationalStoreMessage(message, input.state.botIds)) continue;
-    if (covered.has(message.externalId)) continue;
+    if (covered.has(message.externalId) || covered.has(maskJidsInText(message.externalId))) continue;
     const related = input.state.records.filter((record) => record.sourceMessageIds.includes(message.externalId));
     const manoelFromRecords = related.some((record) => {
       const row = recordToRascunho(input.state, record);

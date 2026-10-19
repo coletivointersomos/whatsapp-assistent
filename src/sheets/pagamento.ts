@@ -6,6 +6,7 @@ import {
   buildRascunhoFromState,
   isManoelTfaRow,
   markFingerprintDuplicates,
+  maskRascunhoRowPii,
   mergeRascunho,
   parseRascunhoGrid,
   rascunhoToValues,
@@ -28,8 +29,10 @@ export function planPagamento(input: {
   sessionStartedAt?: string;
   commissionRate?: number;
 }): PagamentoPlan {
-  const incoming = buildRascunhoFromState(input.state, input.sessionStartedAt).filter(isManoelTfaRow);
-  const existing = (input.existing ?? []).filter(isManoelTfaRow);
+  // PII mascarada nos dois lados antes do merge: a chave (record_id/message_id) fica comparável
+  // com o que já está na planilha, e rascunho + oficial saem sem CPF/telefone/JID/conta/Pix.
+  const incoming = buildRascunhoFromState(input.state, input.sessionStartedAt).filter(isManoelTfaRow).map(maskRascunhoRowPii);
+  const existing = (input.existing ?? []).filter(isManoelTfaRow).map(maskRascunhoRowPii);
   const { merged: mergedRaw, toInsert } = mergeRascunho(existing, incoming);
   const merged = markFingerprintDuplicates(mergedRaw);
   const validation = validateRascunho({

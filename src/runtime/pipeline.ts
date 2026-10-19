@@ -6,7 +6,7 @@ import type { MessageSender } from "../adapters/hermes/openwaSend.ts";
 import { createAssistantProvider } from "../assistant/provider.ts";
 import { createAssistantV2Provider } from "../assistant-v2/provider.ts";
 import { loadAssistantV2Config } from "../assistant-v2/config.ts";
-import type { AppState } from "../domain/types.ts";
+import type { AppState, ProcessResult } from "../domain/types.ts";
 import { processMessage, processMessageAsync, type Clock } from "../engine/process.ts";
 import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
 import type { RuntimeConfig } from "./config.ts";
@@ -17,7 +17,20 @@ export type PipelineLog = (event: string, fields?: Record<string, unknown>) => v
 export type PipelineResult = {
   httpStatus: number;
   body: Record<string, unknown>;
+  /**
+   * true só quando a mensagem foi de fato processada numa conversa autorizada.
+   * Bloqueada, rejeitada, duplicada ou do próprio bot → false (não dispara sync da planilha).
+   */
+  sheetsSync: boolean;
 };
+
+/** A mensagem pode ter mudado registros de uma conversa autorizada? Só então vale sincronizar a planilha. */
+export function shouldSyncSheetsAfter(processed: Pick<ProcessResult, "decision" | "duplicate" | "message">): boolean {
+  if (processed.duplicate) return false;
+  if (processed.decision === "duplicate" || processed.decision === "rejected_unauthorized") return false;
+  if (processed.message?.authorRole === "bot") return false;
+  return true;
+}
 
 function parseEnvelope(raw: unknown): OpenWaEnvelope | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -36,7 +49,7 @@ export async function handleInboundPayload(input: {
   const log = input.log ?? (() => undefined);
   const envelope = parseEnvelope(input.envelope);
   if (!envelope) {
-    return { httpStatus: 400, body: { ok: false, reason: "invalid_payload" } };
+    return { httpStatus: 400, body: { ok: false, reason: "invalid_payload" }, sheetsSync: false };
   }
 
   const hydrated = applyChannelConfig(state, runtime.channel);
@@ -48,6 +61,7 @@ export async function handleInboundPayload(input: {
     return {
       httpStatus: 200,
       body: { ok: false, processed: false, reason: normalized.reason, send: "blocked" },
+      sheetsSync: false,
     };
   }
 
@@ -149,6 +163,8 @@ export async function handleInboundPayload(input: {
     replyCount: processed.replies.length,
   });
 
+  const sheetsSync = shouldSyncSheetsAfter(processed);
+
   const gate = decideSend({
     runtime,
     conversationId: inbound.conversationId,
@@ -168,6 +184,7 @@ export async function handleInboundPayload(input: {
         replies: processed.replies,
         send: { attempted: false, reason: gate.reason as SendBlockReason },
       },
+      sheetsSync,
     };
   }
 
@@ -195,5 +212,6 @@ export async function handleInboundPayload(input: {
       replies: processed.replies,
       send: { attempted: true, deliveries },
     },
+    sheetsSync,
   };
 }

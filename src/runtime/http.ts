@@ -3,6 +3,7 @@ import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { createOpenWaSender, disabledSender } from "../adapters/hermes/openwaSend.ts";
 import { seedState } from "../config/seed.ts";
 import { loadState, saveState } from "../persistence/store.ts";
+import { maskStateRecordsPii } from "../privacy/records.ts";
 import { loadSheetsWriteConfig, sheetsWriteSkipReason } from "../sheets/config.ts";
 import { runGroupSweep } from "../sheets/sweep.ts";
 import { writeSessionToSheet } from "../sheets/write.ts";
@@ -38,8 +39,18 @@ function log(event: string, fields?: Record<string, unknown>): void {
   console.log(JSON.stringify(line));
 }
 
-async function persistState(runtime: RuntimeConfig, state: ReturnType<typeof seedState>): Promise<void> {
+/**
+ * Grava o store (sempre, com PII dos registros mascarada) e, só se `syncSheets`, sincroniza a planilha.
+ * Inbound bloqueado/rejeitado/duplicado chega aqui com `syncSheets: false`.
+ */
+async function persistState(
+  runtime: RuntimeConfig,
+  state: ReturnType<typeof seedState>,
+  options: { syncSheets: boolean },
+): Promise<void> {
+  maskStateRecordsPii(state);
   saveState(runtime.storePath, state);
+  if (!options.syncSheets) return;
   const sheets = loadSheetsWriteConfig();
   const skip = sheetsWriteSkipReason(sheets);
   if (skip) {
@@ -113,7 +124,7 @@ export function createAppServer(runtime: RuntimeConfig) {
           requestedConversationId,
           log,
         });
-        await persistState(runtime, state);
+        await persistState(runtime, state, { syncSheets: true });
         json(res, result.httpStatus, result.body);
         return;
       }
@@ -152,7 +163,7 @@ export function createAppServer(runtime: RuntimeConfig) {
         sender,
         log,
       });
-      await persistState(runtime, state);
+      await persistState(runtime, state, { syncSheets: result.sheetsSync });
       json(res, result.httpStatus, result.body);
     } catch (error) {
       log("webhook_error", { message: error instanceof Error ? error.message : "unknown" });
