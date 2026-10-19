@@ -11,10 +11,11 @@ import {
   mergeRascunho,
   rascunhoFingerprint,
   rascunhoKey,
+  type RascunhoRow,
 } from "../src/sheets/rascunho.ts";
 import { setembroManoelState } from "../src/sheets/setembroManoel.ts";
 import { planGroupSweep } from "../src/sheets/sweep.ts";
-import { validateRascunho } from "../src/sheets/validate.ts";
+import { alertsFromValidation, validateRascunho } from "../src/sheets/validate.ts";
 import { writeSessionToSheet, writeStateToGoogleSheet } from "../src/sheets/write.ts";
 
 describe("rascunho + folha oficial Manoel", () => {
@@ -359,5 +360,132 @@ describe("oficial layout helpers", () => {
     };
     const b = { ...a, placa: "TFA7A94", valor: "5724" };
     assert.equal(rascunhoFingerprint(a), rascunhoFingerprint(b));
+  });
+});
+
+function diesel(over: Partial<RascunhoRow>): RascunhoRow {
+  const row: RascunhoRow = {
+    message_id: "zap-1",
+    enviado_em: "2026-10-08T12:00:00.000Z",
+    data_doc: "2026-10-08",
+    competencia: "2026-10",
+    tipo: "abastecimento_vista",
+    motorista: "Manoel",
+    placa: "TFA7A94",
+    origem: "",
+    destino: "",
+    material: "",
+    toneladas: "",
+    valor_unitario: "",
+    valor: "350",
+    posto: "Posto Alfa",
+    descricao: "diesel",
+    pagamento: "à vista",
+    source: "foto",
+    status: "novo",
+    record_id: "abs-1",
+    fingerprint: "",
+    campos_brutos: "{}",
+    arquivo_origem: "",
+    ...over,
+  };
+  row.fingerprint = rascunhoFingerprint(row);
+  return row;
+}
+
+describe("rascunho: mesmo valor no mesmo mês", () => {
+  const first = diesel({});
+  const statusOf = (rows: RascunhoRow[], id: string) => rows.find((row) => row.record_id === id)?.status;
+
+  it("keeps exact fingerprint duplicates as duplicado", () => {
+    const twin = diesel({ message_id: "zap-2", record_id: "abs-2", enviado_em: "2026-10-09T12:00:00.000Z" });
+    const { merged } = mergeRascunho([first], [twin]);
+    assert.equal(statusOf(merged, "abs-2"), "duplicado");
+  });
+
+  it("asks to confirm when the evidence is ambiguous, and blocks promotion until then", () => {
+    const second = diesel({
+      message_id: "zap-2",
+      record_id: "abs-2",
+      enviado_em: "2026-10-09T12:00:00.000Z",
+      data_doc: "2026-10-09",
+      descricao: "diesel cupom",
+    });
+    const { merged } = mergeRascunho([first], [second]);
+    assert.equal(statusOf(merged, "abs-2"), "confirmar");
+    const validation = validateRascunho({ state: seedState(), rows: merged });
+    const issue = validation.sameValue.find((item) => item.recordId === "abs-2");
+    assert.ok(issue);
+    assert.match(issue.detail, /mesmo valor R\$ 350,00/);
+    assert.match(issue.detail, /confirmar antes de registrar/);
+    assert.equal(validation.promotable.some((row) => row.record_id === "abs-2"), false);
+    assert.equal(validation.promotable.some((row) => row.record_id === "abs-1"), true);
+    assert.ok(alertsFromValidation(validation, merged).some((text) => /outubro/.test(text) && /mesmo valor/.test(text)));
+  });
+
+  it("accepts as novo when the evidence shows two different expenses", () => {
+    const danfe = mergeRascunho(
+      [diesel({ descricao: "diesel DANFE 001234" })],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", descricao: "diesel DANFE 5678" })],
+    );
+    assert.equal(statusOf(danfe.merged, "abs-2"), "novo");
+    const postos = mergeRascunho([first], [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-20", posto: "Posto Beta" })]);
+    assert.equal(statusOf(postos.merged, "abs-2"), "novo");
+    const otherMonth = mergeRascunho(
+      [first],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-11-08", competencia: "2026-11", descricao: "diesel cupom" })],
+    );
+    assert.equal(statusOf(otherMonth.merged, "abs-2"), "novo");
+    const otherValue = mergeRascunho(
+      [diesel({ valor: "3500" })],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", valor: "3666.9" })],
+    );
+    assert.equal(statusOf(otherValue.merged, "abs-2"), "novo");
+  });
+
+  it("treats the same document as duplicado even when the fingerprint differs", () => {
+    const sameDanfe = mergeRascunho(
+      [diesel({ descricao: "diesel DANFE 5678" })],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", valor: "350,00", descricao: "abastecimento NF 5.678" })],
+    );
+    assert.equal(statusOf(sameDanfe.merged, "abs-2"), "duplicado");
+    const samePlace = mergeRascunho([first], [diesel({ message_id: "zap-2", record_id: "abs-2", descricao: "óleo diesel S10" })]);
+    assert.equal(statusOf(samePlace.merged, "abs-2"), "duplicado");
+  });
+
+  it("re-checks confirmar rows on every merge until the evidence resolves them", () => {
+    const peer = diesel({ descricao: "diesel DANFE 9999" });
+    const pending = diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", descricao: "diesel", status: "confirmar" });
+    const still = mergeRascunho([peer, pending], [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09" })]);
+    assert.equal(statusOf(still.merged, "abs-2"), "confirmar");
+    const different = mergeRascunho(
+      [peer, pending],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", descricao: "diesel DANFE 12345" })],
+    );
+    assert.equal(statusOf(different.merged, "abs-2"), "novo");
+    assert.match(different.merged.find((row) => row.record_id === "abs-2")?.descricao ?? "", /12345/);
+    const same = mergeRascunho(
+      [peer, pending],
+      [diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", descricao: "diesel DANFE 9999" })],
+    );
+    assert.equal(statusOf(same.merged, "abs-2"), "duplicado");
+    const peerIgnored = mergeRascunho([{ ...peer, status: "ignorado" }, pending], []);
+    assert.equal(statusOf(peerIgnored.merged, "abs-2"), "novo");
+  });
+
+  it("respects a row a human set back to novo and promotes it", () => {
+    const approved = diesel({ message_id: "zap-2", record_id: "abs-2", data_doc: "2026-10-09", descricao: "diesel cupom", status: "novo" });
+    const { merged } = mergeRascunho([first, approved], [approved]);
+    assert.equal(statusOf(merged, "abs-2"), "novo");
+    const validation = validateRascunho({ state: seedState(), rows: merged });
+    assert.equal(validation.sameValue.length, 0);
+    assert.equal(validation.promotable.some((row) => row.record_id === "abs-2"), true);
+  });
+
+  it("does not flag trips with the same freight on different days", () => {
+    const trip = (over: Partial<RascunhoRow>) =>
+      diesel({ tipo: "viagem", posto: "", origem: "Laranjeiras", destino: "Feira de Santana", valor: "5724", descricao: "5.724 RECEBI", ...over });
+    const { merged } = mergeRascunho([trip({})], [trip({ record_id: "trip-2", data_doc: "2026-10-12" })]);
+    assert.equal(statusOf(merged, "trip-2"), "novo");
   });
 });

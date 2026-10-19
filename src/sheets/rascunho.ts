@@ -17,7 +17,7 @@ export type RascunhoTipo =
   | "deposito"
   | "outro";
 
-export type RascunhoStatus = "novo" | "incompleto" | "promovido" | "ignorado" | "duplicado";
+export type RascunhoStatus = "novo" | "incompleto" | "promovido" | "ignorado" | "duplicado" | "confirmar";
 
 export type RascunhoRow = {
   message_id: string;
@@ -349,14 +349,178 @@ export function buildRascunhoFromState(state: AppState, sessionStartedAt?: strin
   return rows;
 }
 
+export type SameValorDecision = "diferente" | "igual" | "incerto";
+
+export type SameValorVerdict = { decision: SameValorDecision; reason: string };
+
+export type SameValorCheck = {
+  status: "novo" | "duplicado" | "confirmar";
+  peer?: RascunhoRow;
+  verdict?: SameValorVerdict;
+};
+
+/** Valor numérico normalizado (2 casas); undefined se vazio ou <= 0. */
+export function rascunhoValorNumber(value: string): number | undefined {
+  const text = (value ?? "").trim();
+  if (!text) return undefined;
+  let n: number | undefined;
+  if (/^\d+(\.\d{1,2})?$/.test(text)) n = Number(text);
+  else if (/^\d+,\d{1,2}$/.test(text)) n = Number(text.replace(",", "."));
+  else n = parseBrl(text);
+  if (n === undefined || !Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n * 100) / 100;
+}
+
+function evidenceNorm(value: string): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function rawNote(row: Pick<RascunhoRow, "campos_brutos">): string {
+  try {
+    const parsed = JSON.parse(row.campos_brutos || "{}") as { note?: unknown; text?: unknown };
+    return [parsed.note, parsed.text].filter((item) => typeof item === "string").join(" ");
+  } catch {
+    return "";
+  }
+}
+
+/** Números de DANFE/NF/cupom citados na descrição ou na observação bruta. */
+export function rascunhoDocNumbers(row: Pick<RascunhoRow, "descricao" | "campos_brutos">): Set<string> {
+  const found = new Set<string>();
+  const text = `${row.descricao ?? ""} ${rawNote(row)}`;
+  const pattern = /\b(?:danfe|nf-?e?|nota\s+fiscal|cupom|coo|documento|doc)\b\s*(?:n[º°o.]*|num(?:ero)?\.?|#)?\s*[:\-]?\s*(\d[\d.\-]*\d)(?![\d/])/gi;
+  for (const match of text.matchAll(pattern)) {
+    const digits = (match[1] ?? "").replace(/\D/g, "").replace(/^0+/, "");
+    if (digits.length >= 3) found.add(digits);
+  }
+  return found;
+}
+
+function shortDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? `${value.slice(8, 10)}/${value.slice(5, 7)}` : value || "sem data";
+}
+
+function originNote(row: RascunhoRow, other: RascunhoRow): string {
+  if (row.message_id && row.message_id === other.message_id) return "mesma mensagem";
+  return `mensagens diferentes (${shortDate(other.enviado_em.slice(0, 10))} e ${shortDate(row.enviado_em.slice(0, 10))})`;
+}
+
+/**
+ * Compara duas linhas com mesmo valor e mesma competência (impressões digitais diferentes).
+ * "diferente" = evidência mostra dois gastos reais; "igual" = mesmo documento; "incerto" = pedir confirmação.
+ */
+export function compareSameValor(row: RascunhoRow, other: RascunhoRow): SameValorVerdict {
+  const origin = originNote(row, other);
+  if (row.tipo !== other.tipo) return { decision: "diferente", reason: `tipos diferentes; ${origin}` };
+  const docsA = rascunhoDocNumbers(row);
+  const docsB = rascunhoDocNumbers(other);
+  if (docsA.size && docsB.size) {
+    const shared = [...docsA].find((item) => docsB.has(item));
+    if (shared) return { decision: "igual", reason: `mesmo nº de documento ${shared}; ${origin}` };
+    return { decision: "diferente", reason: `nº de documento diferente (${[...docsB][0]} e ${[...docsA][0]}); ${origin}` };
+  }
+  const placaA = normalizePlaca(row.placa);
+  const placaB = normalizePlaca(other.placa);
+  if (placaA && placaB && placaA !== placaB) {
+    return { decision: "diferente", reason: `caminhões diferentes (${placaB} e ${placaA}); ${origin}` };
+  }
+  const samePlaca = Boolean(placaA && placaA === placaB);
+  const sameDate = Boolean(row.data_doc && row.data_doc === other.data_doc);
+  const diffDate = Boolean(row.data_doc && other.data_doc && row.data_doc !== other.data_doc);
+  const dates = `${shortDate(other.data_doc)} e ${shortDate(row.data_doc)}`;
+  if (row.tipo === "viagem") {
+    const routeA = `${evidenceNorm(row.origem)}>${evidenceNorm(row.destino)}`;
+    const routeB = `${evidenceNorm(other.origem)}>${evidenceNorm(other.destino)}`;
+    const hasRoutes = routeA !== ">" && routeB !== ">";
+    if (diffDate) return { decision: "diferente", reason: `datas diferentes (${dates}); ${origin}` };
+    if (hasRoutes && routeA !== routeB) return { decision: "diferente", reason: `rotas diferentes; ${origin}` };
+    if (sameDate && hasRoutes && samePlaca) {
+      return { decision: "igual", reason: `mesma data, rota e caminhão (${shortDate(row.data_doc)}, ${placaA}); ${origin}` };
+    }
+    return { decision: "incerto", reason: `sem DANFE/nº e sem data/rota que diferencie; ${origin}` };
+  }
+  const postoA = evidenceNorm(row.posto);
+  const postoB = evidenceNorm(other.posto);
+  const diffPosto = Boolean(postoA && postoB && postoA !== postoB);
+  const samePosto = Boolean(postoA && postoA === postoB);
+  if (diffDate && diffPosto) return { decision: "diferente", reason: `datas e postos diferentes (${dates}); ${origin}` };
+  if (diffDate && row.message_id && row.message_id === other.message_id) {
+    return { decision: "diferente", reason: `linhas de datas diferentes na mesma mensagem (${dates})` };
+  }
+  if (sameDate && samePosto && samePlaca) {
+    return { decision: "igual", reason: `mesma data, posto e caminhão (${shortDate(row.data_doc)}, ${placaA}); ${origin}` };
+  }
+  return { decision: "incerto", reason: `sem DANFE/nº e sem data+posto que diferencie; ${origin}` };
+}
+
+/** Linhas anteriores com mesmo valor (> 0) e mesma competência, que não sejam a mesma impressão digital. */
+export function sameValorPeers(row: RascunhoRow, earlier: RascunhoRow[]): RascunhoRow[] {
+  const valor = rascunhoValorNumber(row.valor);
+  if (valor === undefined || !row.competencia) return [];
+  const key = rascunhoKey(row);
+  return earlier.filter(
+    (item) =>
+      item.status !== "ignorado" &&
+      item.status !== "duplicado" &&
+      rascunhoKey(item) !== key &&
+      item.fingerprint !== row.fingerprint &&
+      item.competencia === row.competencia &&
+      rascunhoValorNumber(item.valor) === valor,
+  );
+}
+
+export function checkSameValor(row: RascunhoRow, earlier: RascunhoRow[]): SameValorCheck {
+  let unsure: SameValorCheck | undefined;
+  let different: SameValorCheck | undefined;
+  for (const peer of sameValorPeers(row, earlier)) {
+    const verdict = compareSameValor(row, peer);
+    if (verdict.decision === "igual") return { status: "duplicado", peer, verdict };
+    if (verdict.decision === "incerto") unsure ??= { status: "confirmar", peer, verdict };
+    else different ??= { status: "novo", peer, verdict };
+  }
+  return unsure ?? different ?? { status: "novo" };
+}
+
+/** Linha "confirmar" ainda não aceita: completa campos vazios (e nº de documento) com a versão atual do store. */
+function refreshConfirmar(row: RascunhoRow, fresh?: RascunhoRow): RascunhoRow {
+  if (!fresh) return row;
+  const next = { ...row };
+  for (const col of ["data_doc", "posto", "placa", "origem", "destino", "descricao"] as const) {
+    if (!next[col].trim() && fresh[col].trim()) next[col] = fresh[col];
+  }
+  if (rascunhoDocNumbers(next).size === 0 && rascunhoDocNumbers(fresh).size > 0) {
+    next.descricao = fresh.descricao;
+    next.campos_brutos = fresh.campos_brutos;
+  }
+  const changed = (["data_doc", "posto", "placa", "origem", "destino", "descricao", "campos_brutos"] as const).some(
+    (col) => next[col] !== row[col],
+  );
+  if (changed) next.fingerprint = rascunhoFingerprint(next);
+  return next;
+}
+
 export function mergeRascunho(existing: RascunhoRow[], incoming: RascunhoRow[]): {
   merged: RascunhoRow[];
   toInsert: RascunhoRow[];
 } {
-  const merged = [...existing];
+  const incomingByKey = new Map(incoming.map((row) => [rascunhoKey(row), row]));
+  const merged: RascunhoRow[] = [];
+  for (const row of existing) {
+    if (row.status !== "confirmar") {
+      merged.push(row);
+      continue;
+    }
+    const refreshed = refreshConfirmar(row, incomingByKey.get(rascunhoKey(row)));
+    merged.push({ ...refreshed, status: checkSameValor(refreshed, merged).status });
+  }
   const known = new Set(existing.map(rascunhoKey).filter(Boolean));
   const fingerprints = new Map<string, string[]>();
-  for (const row of existing) {
+  for (const row of merged) {
     const list = fingerprints.get(row.fingerprint) ?? [];
     list.push(rascunhoKey(row));
     fingerprints.set(row.fingerprint, list);
@@ -367,7 +531,11 @@ export function mergeRascunho(existing: RascunhoRow[], incoming: RascunhoRow[]):
     if (!key) continue;
     if (known.has(key)) continue;
     const twins = fingerprints.get(row.fingerprint) ?? [];
-    const next = twins.length ? { ...row, status: "duplicado" as const } : row;
+    let next: RascunhoRow = twins.length ? { ...row, status: "duplicado" as const } : row;
+    if (!twins.length && row.status === "novo") {
+      const check = checkSameValor(row, merged);
+      if (check.status !== "novo") next = { ...row, status: check.status };
+    }
     known.add(key);
     const list = fingerprints.get(next.fingerprint) ?? [];
     list.push(key);

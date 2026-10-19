@@ -1,16 +1,18 @@
 import type { AppState, StoredMessage } from "../domain/types.ts";
 import {
   buildRascunhoFromState,
+  checkSameValor,
   isOperationalStoreMessage,
   isManoelTfaRow,
   messageToRascunho,
   rascunhoKey,
+  rascunhoValorNumber,
   recordToRascunho,
   type RascunhoRow,
 } from "./rascunho.ts";
 
 export type RascunhoIssue = {
-  kind: "esquecido" | "duplicado" | "incompleto";
+  kind: "esquecido" | "duplicado" | "incompleto" | "valor_repetido";
   messageId: string;
   recordId: string;
   detail: string;
@@ -21,9 +23,28 @@ export type RascunhoValidation = {
   forgotten: RascunhoIssue[];
   duplicates: RascunhoIssue[];
   incomplete: RascunhoIssue[];
+  sameValue: RascunhoIssue[];
   promotable: RascunhoRow[];
   clean: boolean;
 };
+
+function brl(value: number): string {
+  const [int, cents] = value.toFixed(2).split(".");
+  return `R$ ${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${cents}`;
+}
+
+function dayMonth(row: RascunhoRow): string {
+  const date = row.data_doc || row.enviado_em.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}/.test(date) ? `${date.slice(8, 10)}/${date.slice(5, 7)}` : "sem data";
+}
+
+function sameValueDetail(row: RascunhoRow, earlier: RascunhoRow[]): string {
+  const valor = rascunhoValorNumber(row.valor);
+  const money = valor !== undefined ? brl(valor) : row.valor;
+  const check = checkSameValor(row, earlier);
+  if (!check.peer || !check.verdict) return `${row.tipo} ${dayMonth(row)} com valor ${money} repetido no mês; confirmar antes de registrar`;
+  return `${row.tipo} ${dayMonth(row)} com mesmo valor ${money} que ${check.peer.tipo} ${dayMonth(check.peer)} (${check.verdict.reason}); confirmar antes de registrar`;
+}
 
 function requiredMissing(row: RascunhoRow): string | undefined {
   if (row.tipo === "outro") return "tipo incerto";
@@ -115,10 +136,22 @@ export function validateRascunho(input: {
     }
   }
 
+  input.rows.forEach((row, index) => {
+    if (row.status !== "confirmar") return;
+    issues.push({
+      kind: "valor_repetido",
+      messageId: row.message_id,
+      recordId: row.record_id,
+      detail: sameValueDetail(row, input.rows.slice(0, index)),
+    });
+  });
+
   const blocked = new Set(
     input.rows
       .filter((row) => {
-        if (row.status === "duplicado" || row.status === "incompleto" || row.status === "ignorado") return true;
+        if (row.status === "duplicado" || row.status === "incompleto" || row.status === "ignorado" || row.status === "confirmar") {
+          return true;
+        }
         return Boolean(requiredMissing(row));
       })
       .map(rascunhoKey),
@@ -128,11 +161,13 @@ export function validateRascunho(input: {
   const forgotten = issues.filter((item) => item.kind === "esquecido");
   const duplicates = issues.filter((item) => item.kind === "duplicado");
   const incomplete = issues.filter((item) => item.kind === "incompleto");
+  const sameValue = issues.filter((item) => item.kind === "valor_repetido");
   return {
     issues,
     forgotten,
     duplicates,
     incomplete,
+    sameValue,
     promotable,
     clean: forgotten.length === 0,
   };
