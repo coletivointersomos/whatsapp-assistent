@@ -116,7 +116,7 @@ export function normalizeOpenWaEnvelope(
     type: media && isPlainTextMime(media.mime) ? "texto" : type,
     text,
     attachmentRef: type === "texto" && !media ? undefined : mimetype || data.body || type,
-    media: media && isVisionImage(media.mime) ? media : undefined,
+    media: media && (isVisionImage(media.mime) || media.mime.toLowerCase().startsWith("application/pdf")) ? media : undefined,
     raw: envelope,
   };
   return { ok: true, inbound };

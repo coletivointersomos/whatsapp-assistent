@@ -2,6 +2,21 @@ import { buildOpenWaSendUrl } from "./openwaSend.ts";
 import type { OpenWaMessageData } from "./types.ts";
 
 export const MAX_MEDIA_BYTES = 3_500_000;
+/** PDF baixado (o que vai ao vision é a página rasterizada, que respeita MAX_MEDIA_BYTES). */
+export const MAX_PDF_BYTES = 8 * 1024 * 1024;
+
+/** Tipo pelo início do base64 quando o OpenWA não manda data URL. */
+export function sniffBase64Mime(base64: string): string | undefined {
+  if (base64.startsWith("JVBERi")) return "application/pdf";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBORw0KGgo")) return "image/png";
+  if (base64.startsWith("UklGR")) return "image/webp";
+  return undefined;
+}
+
+function mediaLimit(mime: string): number {
+  return mime.toLowerCase().startsWith("application/pdf") ? MAX_PDF_BYTES : MAX_MEDIA_BYTES;
+}
 export const DEFAULT_OPENWA_MEDIA_PATH = "/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media";
 
 export type ResolvedMedia = {
@@ -15,7 +30,8 @@ function stripDataUrl(raw: string): { mime: string; base64: string } | undefined
   const match = trimmed.match(/^data:([^;]+);base64,(.+)$/i);
   if (match) return { mime: match[1], base64: match[2].replace(/\s/g, "") };
   if (/^[A-Za-z0-9+/=\s]+$/.test(trimmed) && trimmed.length > 80) {
-    return { mime: "image/jpeg", base64: trimmed.replace(/\s/g, "") };
+    const base64 = trimmed.replace(/\s/g, "");
+    return { mime: sniffBase64Mime(base64) ?? "image/jpeg", base64 };
   }
   return undefined;
 }
@@ -59,7 +75,7 @@ export function mediaFromWebhook(data: OpenWaMessageData | undefined, kind?: str
   const mime = data?.media?.mimetype || parsed.mime || (kind === "image" ? "image/jpeg" : parsed.mime);
   if (!isAcceptedDocumentMime(mime)) return undefined;
   const bytes = Math.floor((parsed.base64.length * 3) / 4);
-  if (bytes > MAX_MEDIA_BYTES) return undefined;
+  if (bytes > mediaLimit(mime)) return undefined;
   return { mime, base64: parsed.base64, source: "webhook" };
 }
 
@@ -138,11 +154,11 @@ export async function fetchOpenWaImage(input: {
       const response = await fetchImpl(url, { method: "GET", headers });
       const raw = await readOkBody(response);
       if (!raw) continue;
-      const parsed = stripDataUrl(raw) ?? { mime: "image/jpeg", base64: raw.replace(/\s/g, "") };
+      const parsed = stripDataUrl(raw) ?? { mime: sniffBase64Mime(raw.replace(/\s/g, "")) ?? "image/jpeg", base64: raw.replace(/\s/g, "") };
       if (!parsed.base64) continue;
-      const bytes = Math.floor((parsed.base64.length * 3) / 4);
-      if (bytes > MAX_MEDIA_BYTES) continue;
       const mime = parsed.mime || "image/jpeg";
+      const bytes = Math.floor((parsed.base64.length * 3) / 4);
+      if (bytes > mediaLimit(mime)) continue;
       if (!isAcceptedDocumentMime(mime)) continue;
       return { mime, base64: parsed.base64, source: "openwa" };
     } catch {

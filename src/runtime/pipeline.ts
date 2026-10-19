@@ -12,6 +12,7 @@ import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provi
 import type { SpeechToText } from "../audio/alibabaAsr.ts";
 import { loadAsrConfig, type AsrRuntimeConfig } from "../audio/config.ts";
 import { transcribeAudioInbound } from "../audio/transcribeInbound.ts";
+import { ingestPdfInbound, isPdfMime, type PdfRunner } from "../documents/pdf.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -49,6 +50,8 @@ export async function handleInboundPayload(input: {
   log?: PipelineLog;
   /** Testes: cliente ASR, config ASR e fetch (mídia do OpenWA) simulados. */
   audio?: { asr?: SpeechToText; config?: AsrRuntimeConfig; fetchImpl?: typeof fetch };
+  /** Testes: executor de pdftotext/pdftoppm simulado. */
+  pdfRunner?: PdfRunner;
 }): Promise<PipelineResult> {
   const { runtime, state, sender } = input;
   const log = input.log ?? (() => undefined);
@@ -101,6 +104,9 @@ export async function handleInboundPayload(input: {
     } else {
       log("vision_media_missing", { type: inbound.type });
     }
+  }
+  if (inbound.media && isPdfMime(inbound.media.mime)) {
+    inbound = await ingestPdfInbound({ inbound, runner: input.pdfRunner, log });
   }
   if (inbound.media && isPlainTextMime(inbound.media.mime)) {
     const decoded = decodePlainText(inbound.media.base64).trim();
