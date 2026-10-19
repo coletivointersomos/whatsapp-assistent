@@ -1,12 +1,15 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadState } from "../persistence/store.ts";
+import { loadAppendTarget, runAppendExisting } from "../sheets/appendExisting.ts";
 import { loadModeloConfig, runModeloFill } from "../sheets/modeloWriter.ts";
 
 /**
  * Parte 2e — cópia do Modelo preenchida (só aba do motorista).
  *   tsx src/cli/modeloFill.ts --competencia 2026-10 [--file /data/store.json] [--dry-run]
  * Sem MODELO_SHEET_ENABLED=true nada é escrito (mostra só o resumo). Saída sem PII.
+ * Com MODELO_TARGET_SPREADSHEET_ID: escreve na planilha EXISTENTE do mês, só acrescentando
+ * (append_only). O --dry-run lê a planilha ao vivo e mostra célula a célula o que seria escrito.
  */
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -20,13 +23,25 @@ export async function main(args: string[]): Promise<number> {
     return 2;
   }
   const state = loadState(flag(args, "--file") ?? process.env.STORE_PATH ?? "data/store.json");
-  const result = await runModeloFill({
-    state,
-    competencia,
-    config: loadModeloConfig(process.env),
-    dryRun: args.includes("--dry-run"),
-    log: (event, fields) => process.stdout.write(`${JSON.stringify({ event, ...fields })}\n`),
-  });
+  const log = (event: string, fields?: Record<string, unknown>) => process.stdout.write(`${JSON.stringify({ event, ...fields })}\n`);
+  const config = loadModeloConfig(process.env);
+  const target = loadAppendTarget(process.env);
+  if (target) {
+    const result = await runAppendExisting({ state, competencia, config, target, dryRun: args.includes("--dry-run"), log });
+    process.stdout.write(
+      `${JSON.stringify({
+        status: result.status,
+        modo: target.mode,
+        planilha: result.title ?? "",
+        celulas: result.plan?.writes.length ?? 0,
+        acrescentadas: result.plan?.appended ?? [],
+        puladas: result.plan?.skipped ?? [],
+      })}\n`,
+    );
+    for (const w of result.plan?.writes ?? []) process.stdout.write(`${JSON.stringify({ celula: w.range, valor: w.values[0]?.[0] })}\n`);
+    return 0;
+  }
+  const result = await runModeloFill({ state, competencia, config, dryRun: args.includes("--dry-run"), log });
   process.stdout.write(
     `${JSON.stringify({ status: result.status, copia: result.copyName, copiou: result.copied ?? false, inserts: result.fill.inserts, ranges: result.fill.writes.length, resumo: result.fill.summary })}\n`,
   );

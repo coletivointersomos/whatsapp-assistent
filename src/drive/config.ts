@@ -5,6 +5,8 @@
  *   GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/...json         (mesma conta de serviço das planilhas)
  *   DRIVE_CHAT_IDS=<jid do grupo do caminhão>[,<outro>]         (só essas conversas vão para a pasta;
  *                                                                vazio = nenhuma, mesmo com DRIVE_ENABLED=true)
+ * Escopo: o token do Drive pede https://www.googleapis.com/auth/drive (googleDrive.ts) e o do
+ * escritor de planilha pede drive + spreadsheets (modeloWriter/appendExisting).
  */
 export type DriveConfig = {
   enabled: boolean;
@@ -12,6 +14,9 @@ export type DriveConfig = {
   credentialsPath: string;
   chatIds: string[];
 };
+
+/** Arquivos de TESTE do Drive vão só para <raiz>/_teste-hermes (cli/driveSmoke.ts). */
+export const DRIVE_TEST_FOLDER = "_teste-hermes";
 
 export const DEFAULT_DRIVE_ROOT_FOLDER_ID = "1zu51FqqV0AyVm8NB1Df8U2-thPka9P7m";
 

@@ -19,6 +19,8 @@ import type { RascunhoRow } from "./rascunho.ts";
  *    qualquer planilha da pasta do mês sem o sufixo);
  *  - só a aba do motorista recebe valores; nenhuma outra aba é tocada;
  *  - no Drive só cria (cópia/pasta). Nada é apagado, movido ou renomeado.
+ * Exceção explícita (Bruno, 19/10/2026): com MODELO_TARGET_SPREADSHEET_ID a CLI usa
+ * appendExisting.ts (planilha existente do mês, SOMENTE ACRESCENTAR) e este caminho de cópia não roda.
  */
 export type ModeloConfig = {
   enabled: boolean;
