@@ -151,3 +151,72 @@ export async function fetchOpenWaImage(input: {
   }
   return undefined;
 }
+
+/** Limite de áudio baixado do OpenWA (o ASR aceita até ~10 MiB). */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+export type AudioFetchResult =
+  | { ok: true; media: { mime: string; base64: string; bytes: number } }
+  | { ok: false; reason: "media_unavailable" | "media_too_large" | "media_not_audio"; bytes?: number };
+
+function audioMime(value: string | null | undefined): string | undefined {
+  const base = (value ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  if (base.startsWith("audio/")) return base;
+  if (base === "application/ogg" || base === "video/ogg") return "audio/ogg";
+  return undefined;
+}
+
+/** Baixa o áudio da mensagem no OpenWA (só GET), com limite de 8 MiB. */
+export async function fetchOpenWaAudio(input: {
+  baseUrl: string;
+  apiKey: string;
+  apiKeyHeader: string;
+  sessionId: string;
+  messageId: string;
+  chatId?: string;
+  mediaPath: string;
+  fetchImpl?: typeof fetch;
+}): Promise<AudioFetchResult> {
+  if (!input.baseUrl.trim() || !input.messageId) return { ok: false, reason: "media_unavailable" };
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const headers: Record<string, string> = {};
+  if (input.apiKey) headers[input.apiKeyHeader] = input.apiKey;
+  let notAudio = false;
+  for (const url of resolveOpenWaMediaUrls(input)) {
+    try {
+      const response = await fetchImpl(url, { method: "GET", headers, signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) continue;
+      const declared = Number(response.headers.get("content-length") ?? "");
+      if (Number.isFinite(declared) && declared > MAX_AUDIO_BYTES * 1.4) return { ok: false, reason: "media_too_large", bytes: declared };
+      const ctype = response.headers.get("content-type") ?? "";
+      let base64: string | undefined;
+      let mime = audioMime(ctype);
+      if (ctype.includes("application/json")) {
+        const json = (await response.json()) as Record<string, unknown>;
+        const raw = stringField(json.data) ?? stringField(json.media) ?? stringField(json.base64) ?? stringField(json.body);
+        if (!raw) continue;
+        const match = raw.trim().match(/^data:([^;,]+)[^,]*;base64,(.+)$/is);
+        base64 = (match ? match[2] : raw).replace(/\s/g, "");
+        const nested = json.media && typeof json.media === "object" ? (json.media as { mimetype?: unknown }).mimetype : undefined;
+        mime = audioMime(match?.[1]) ?? audioMime(typeof json.mimetype === "string" ? json.mimetype : undefined) ?? audioMime(typeof nested === "string" ? nested : undefined);
+      } else {
+        const buf = Buffer.from(await response.arrayBuffer());
+        if (!buf.length) continue;
+        if (buf.length > MAX_AUDIO_BYTES) return { ok: false, reason: "media_too_large", bytes: buf.length };
+        base64 = buf.toString("base64");
+        if (!mime && buf.subarray(0, 4).toString("latin1") === "OggS") mime = "audio/ogg";
+      }
+      if (!base64) continue;
+      const bytes = Math.floor((base64.length * 3) / 4);
+      if (bytes > MAX_AUDIO_BYTES) return { ok: false, reason: "media_too_large", bytes };
+      if (!mime) {
+        notAudio = true;
+        continue;
+      }
+      return { ok: true, media: { mime, base64, bytes } };
+    } catch {
+      /* tenta o próximo path do OpenWA */
+    }
+  }
+  return { ok: false, reason: notAudio ? "media_not_audio" : "media_unavailable" };
+}

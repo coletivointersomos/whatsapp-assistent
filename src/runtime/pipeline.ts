@@ -9,6 +9,10 @@ import { loadAssistantV2Config } from "../assistant-v2/config.ts";
 import type { AppState, ProcessResult } from "../domain/types.ts";
 import { processMessage, processMessageAsync, type Clock } from "../engine/process.ts";
 import { canCallRemoteLlm, createNluProvider, loadNluConfig } from "../nlu/provider.ts";
+import type { SpeechToText } from "../audio/alibabaAsr.ts";
+import { loadAsrConfig, type AsrRuntimeConfig } from "../audio/config.ts";
+import { transcribeAudioInbound } from "../audio/transcribeInbound.ts";
+import { maskIdForLog } from "../privacy/pii.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -44,6 +48,8 @@ export async function handleInboundPayload(input: {
   sender: MessageSender;
   clock?: Clock;
   log?: PipelineLog;
+  /** Testes: cliente ASR, config ASR e fetch (mídia do OpenWA) simulados. */
+  audio?: { asr?: SpeechToText; config?: AsrRuntimeConfig; fetchImpl?: typeof fetch };
 }): Promise<PipelineResult> {
   const { runtime, state, sender } = input;
   const log = input.log ?? (() => undefined);
@@ -57,7 +63,7 @@ export async function handleInboundPayload(input: {
 
   const normalized = normalizeOpenWaEnvelope(envelope, runtime.channel);
   if (!normalized.ok) {
-    log("inbound_blocked", { reason: normalized.reason, chatId: envelope.data?.chatId });
+    log("inbound_blocked", { reason: normalized.reason, chatId: maskIdForLog(envelope.data?.chatId) });
     return {
       httpStatus: 200,
       body: { ok: false, processed: false, reason: normalized.reason, send: "blocked" },
@@ -66,6 +72,20 @@ export async function handleInboundPayload(input: {
   }
 
   let inbound = normalized.inbound;
+  const alreadySeen =
+    state.messages.some((m) => m.externalId === inbound.externalId) ||
+    state.rejected.some((r) => r.externalId === inbound.externalId);
+  if (inbound.type === "audio_info" && !alreadySeen) {
+    inbound = await transcribeAudioInbound({
+      inbound,
+      envelope,
+      runtime,
+      config: input.audio?.config ?? loadAsrConfig(process.env),
+      asr: input.audio?.asr,
+      fetchImpl: input.audio?.fetchImpl,
+      log,
+    });
+  }
   if (inbound.type === "anexo_comprovante" && !inbound.media?.base64 && runtime.openwaBaseUrl) {
     const fetched = await fetchOpenWaImage({
       baseUrl: runtime.openwaBaseUrl,
