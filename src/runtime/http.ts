@@ -10,6 +10,9 @@ import { writeSessionToSheet } from "../sheets/write.ts";
 import { describeSendMode, type RuntimeConfig } from "./config.ts";
 import { verifyWebhookHmac, verifyResumeAuth } from "./hmac.ts";
 import { handleInboundPayload } from "./pipeline.ts";
+import { createAutoFill, factCompetencia, loadAutoFillConfig } from "../sheets/autoFill.ts";
+import { loadAppendTarget, runAppendExisting } from "../sheets/appendExisting.ts";
+import { loadModeloConfig } from "../sheets/modeloWriter.ts";
 import { handleResume } from "./resume.ts";
 
 function readHeaders(req: IncomingMessage): Record<string, string | undefined> {
@@ -71,6 +74,16 @@ async function persistState(
 
 export function createAppServer(runtime: RuntimeConfig) {
   let state = applyChannelConfig(loadState(runtime.storePath), runtime.channel);
+  const autoFill = createAutoFill({
+    config: loadAutoFillConfig(process.env),
+    log,
+    run: async (competencia) => {
+      const target = loadAppendTarget(process.env);
+      if (!target) throw new Error("sem MODELO_TARGET_SPREADSHEET_ID");
+      const res = await runAppendExisting({ state, competencia, config: loadModeloConfig(process.env), target, log });
+      log("auto_fill_result", { competencia, status: res.status, cells: res.plan?.writes.length ?? 0, rows: res.plan?.appended.length ?? 0, skipped: res.plan?.skipped.length ?? 0 });
+    },
+  });
   const sender = runtime.liveSend
     ? createOpenWaSender({
         baseUrl: runtime.openwaBaseUrl,
@@ -164,6 +177,12 @@ export function createAppServer(runtime: RuntimeConfig) {
         log,
       });
       await persistState(runtime, state, { syncSheets: result.sheetsSync });
+      if (result.sheetsSync) {
+        const data = (envelope as { data?: { chatId?: unknown; id?: unknown } } | null)?.data;
+        const chatId = typeof data?.chatId === "string" ? data.chatId : undefined;
+        const msgId = typeof data?.id === "string" ? data.id : undefined;
+        autoFill.trigger(chatId, factCompetencia(state, msgId));
+      }
       json(res, result.httpStatus, result.body);
     } catch (error) {
       log("webhook_error", { message: error instanceof Error ? error.message : "unknown" });
