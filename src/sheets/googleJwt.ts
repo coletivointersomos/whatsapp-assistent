@@ -13,6 +13,8 @@ export function signServiceAccountJwt(input: {
   privateKey: string;
   nowMs?: number;
   lifetimeSec?: number;
+  /** Padrão: planilhas (comportamento anterior). Drive passa o escopo dele. */
+  scope?: string;
 }): string {
   const nowSec = Math.floor((input.nowMs ?? Date.now()) / 1000);
   const exp = nowSec + (input.lifetimeSec ?? 3600);
@@ -20,7 +22,7 @@ export function signServiceAccountJwt(input: {
   const payload = base64Url(
     JSON.stringify({
       iss: input.clientEmail,
-      scope: SHEETS_SCOPE,
+      scope: input.scope ?? SHEETS_SCOPE,
       aud: TOKEN_URL,
       iat: nowSec,
       exp,
@@ -41,11 +43,12 @@ export type ServiceAccountFile = {
 export async function fetchGoogleAccessToken(
   account: ServiceAccountFile,
   fetchImpl: typeof fetch = fetch,
+  scope?: string,
 ): Promise<string> {
   const email = account.client_email?.trim();
   const key = account.private_key?.replace(/\\n/g, "\n");
   if (!email || !key) throw new Error("service account JSON missing client_email or private_key");
-  const assertion = signServiceAccountJwt({ clientEmail: email, privateKey: key });
+  const assertion = signServiceAccountJwt({ clientEmail: email, privateKey: key, scope });
   const response = await fetchImpl(TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },

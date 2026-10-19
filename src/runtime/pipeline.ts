@@ -13,6 +13,9 @@ import type { SpeechToText } from "../audio/alibabaAsr.ts";
 import { loadAsrConfig, type AsrRuntimeConfig } from "../audio/config.ts";
 import { transcribeAudioInbound } from "../audio/transcribeInbound.ts";
 import { ingestPdfInbound, isPdfMime, type PdfRunner } from "../documents/pdf.ts";
+import { archiveToDrive, buildArchiveItems } from "../drive/archive.ts";
+import { driveSkipReason, loadDriveConfig, type DriveConfig } from "../drive/config.ts";
+import { createDriveClient, serviceAccountTokenProvider, type DriveClient } from "../drive/googleDrive.ts";
 import type { RuntimeConfig } from "./config.ts";
 import { decideSend, type SendBlockReason } from "./sendGate.ts";
 
@@ -36,6 +39,14 @@ export function shouldSyncSheetsAfter(processed: Pick<ProcessResult, "decision" 
   return true;
 }
 
+let driveClientCache: { path: string; client: DriveClient } | undefined;
+function defaultDriveClient(credentialsPath: string): DriveClient {
+  if (driveClientCache?.path !== credentialsPath) {
+    driveClientCache = { path: credentialsPath, client: createDriveClient({ token: serviceAccountTokenProvider(credentialsPath) }) };
+  }
+  return driveClientCache.client;
+}
+
 function parseEnvelope(raw: unknown): OpenWaEnvelope | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   return raw as OpenWaEnvelope;
@@ -52,6 +63,8 @@ export async function handleInboundPayload(input: {
   audio?: { asr?: SpeechToText; config?: AsrRuntimeConfig; fetchImpl?: typeof fetch };
   /** Testes: executor de pdftotext/pdftoppm simulado. */
   pdfRunner?: PdfRunner;
+  /** Testes: config/cliente do Drive simulados; awaitArchive espera o upload terminar. */
+  drive?: { config?: DriveConfig; client?: DriveClient; awaitArchive?: boolean };
 }): Promise<PipelineResult> {
   const { runtime, state, sender } = input;
   const log = input.log ?? (() => undefined);
@@ -77,8 +90,17 @@ export async function handleInboundPayload(input: {
   const alreadySeen =
     state.messages.some((m) => m.externalId === inbound.externalId) ||
     state.rejected.some((r) => r.externalId === inbound.externalId);
+  const original: {
+    audio?: { mime: string; base64: string };
+    photo?: { mime: string; base64: string };
+    pdf?: { mime: string; base64: string };
+    transcript?: string;
+  } = {};
   if (inbound.type === "audio_info" && !alreadySeen) {
     inbound = await transcribeAudioInbound({
+      onAudio: (audio) => {
+        original.audio = audio;
+      },
       inbound,
       envelope,
       runtime,
@@ -87,6 +109,7 @@ export async function handleInboundPayload(input: {
       fetchImpl: input.audio?.fetchImpl,
       log,
     });
+    if (original.audio && inbound.text?.trim()) original.transcript = inbound.text;
   }
   if (inbound.type === "anexo_comprovante" && !inbound.media?.base64 && runtime.openwaBaseUrl) {
     const fetched = await fetchOpenWaImage({
@@ -105,6 +128,8 @@ export async function handleInboundPayload(input: {
       log("vision_media_missing", { type: inbound.type });
     }
   }
+  if (inbound.media?.base64 && isPdfMime(inbound.media.mime)) original.pdf = { mime: inbound.media.mime, base64: inbound.media.base64 };
+  else if (inbound.media?.base64 && inbound.media.mime.startsWith("image/")) original.photo = { mime: inbound.media.mime, base64: inbound.media.base64 };
   if (inbound.media && isPdfMime(inbound.media.mime)) {
     inbound = await ingestPdfInbound({ inbound, runner: input.pdfRunner, log });
   }
@@ -189,6 +214,36 @@ export async function handleInboundPayload(input: {
   });
 
   const sheetsSync = shouldSyncSheetsAfter(processed);
+
+  // 2d: arquivo no Drive (só criar). Desligado sem DRIVE_ENABLED=true e sem a conversa em DRIVE_CHAT_IDS.
+  const driveConfig = input.drive?.config ?? loadDriveConfig(process.env);
+  const driveSkip = driveSkipReason(driveConfig);
+  if (!driveSkip && sheetsSync && !alreadySeen && driveConfig.chatIds.includes(inbound.conversationId)) {
+    const factDate = state.records
+      .filter((record) => record.sourceMessageIds.includes(inbound.externalId))
+      .map((record) => (record.viagem ?? record.despesa ?? record.abastecimento)?.date)
+      .find((date): date is string => Boolean(date && /^\d{4}-\d{2}/.test(date)));
+    const items = buildArchiveItems({
+      externalId: inbound.externalId,
+      sentAt: inbound.sentAt,
+      factCompetencia: factDate?.slice(0, 7),
+      photo: original.photo,
+      pdf: original.pdf,
+      audio: original.audio,
+      transcript: original.transcript,
+      text: original.audio ? undefined : inbound.text,
+      author: inbound.authorRole,
+      originalName: typeof envelope.data?.media?.filename === "string" ? envelope.data.media.filename : undefined,
+    });
+    if (items.length) {
+      const client = input.drive?.client ?? defaultDriveClient(driveConfig.credentialsPath);
+      const job = archiveToDrive({ client, rootFolderId: driveConfig.rootFolderId, items, log }).catch((error: unknown) => {
+        log("drive_failed", { reason: error instanceof Error ? error.message.slice(0, 80) : "unknown" });
+        return [];
+      });
+      if (input.drive?.awaitArchive) await job;
+    }
+  }
 
   const gate = decideSend({
     runtime,

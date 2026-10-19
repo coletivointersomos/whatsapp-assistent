@@ -2,6 +2,8 @@
 export type OpenWaMedia = {
   data?: string;
   mimetype?: string;
+  /** Nome original do arquivo (documentos/PDF), quando o OpenWA manda. */
+  filename?: string;
 };
 
 export type OpenWaContact = {

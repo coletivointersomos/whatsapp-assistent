@@ -41,6 +41,8 @@ export async function transcribeAudioInbound(input: {
   asr?: SpeechToText;
   fetchImpl?: typeof fetch;
   log?: AsrLog;
+  /** Bytes do áudio aceito (para o arquivo no Drive, 2d). Não altera a transcrição. */
+  onAudio?: (audio: { mime: string; base64: string }) => void;
 }): Promise<InboundMessage> {
   const { inbound, config } = input;
   const log = input.log ?? (() => undefined);
@@ -70,6 +72,7 @@ export async function transcribeAudioInbound(input: {
   }
   if (audio.bytes <= 0) return fail("media_empty");
   if (audio.bytes > MAX_AUDIO_BYTES) return fail("media_too_large", { bytes: audio.bytes });
+  input.onAudio?.({ mime: audio.mime, base64: audio.base64 });
 
   const started = Date.now();
   try {
