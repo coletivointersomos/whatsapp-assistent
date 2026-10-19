@@ -13,7 +13,7 @@ export type AutoFillConfig = { enabled: boolean; chatIds: string[]; debounceMs: 
 export function loadAutoFillConfig(env: Record<string, string | undefined> = process.env): AutoFillConfig {
   const ms = Number(env.MODELO_AUTO_FILL_DEBOUNCE_MS);
   return {
-    enabled: env.MODELO_AUTO_FILL_ENABLED === "true" && env.MODELO_SHEET_ENABLED === "true" && Boolean(env.MODELO_TARGET_SPREADSHEET_ID?.trim()),
+    enabled: (env.MODELO_AUTO_FILL_ENABLED === "true" || env.CONVERSA_SHEET_ENABLED === "true") && env.MODELO_SHEET_ENABLED === "true" && Boolean(env.MODELO_TARGET_SPREADSHEET_ID?.trim()),
     chatIds: (env.MODELO_AUTO_FILL_CHAT_IDS ?? "").split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean),
     debounceMs: Number.isFinite(ms) && ms >= 1000 ? ms : 60_000,
   };

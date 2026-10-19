@@ -13,6 +13,12 @@ import { handleInboundPayload } from "./pipeline.ts";
 import { createAutoFill, factCompetencia, loadAutoFillConfig } from "../sheets/autoFill.ts";
 import { loadAppendTarget, runAppendExisting } from "../sheets/appendExisting.ts";
 import { loadModeloConfig } from "../sheets/modeloWriter.ts";
+import { createAppendSheetsApi } from "../sheets/appendExisting.ts";
+import { loadConversaConfig, runConversaFill } from "../sheets/conversaSheet.ts";
+import { serviceAccountSheetsToken } from "../cli/conversaFill.ts";
+import { driveTokenProvider } from "../drive/auth.ts";
+import { loadDriveConfig } from "../drive/config.ts";
+import { createDriveClient } from "../drive/googleDrive.ts";
 import { handleResume } from "./resume.ts";
 
 function readHeaders(req: IncomingMessage): Record<string, string | undefined> {
@@ -80,8 +86,34 @@ export function createAppServer(runtime: RuntimeConfig) {
     run: async (competencia) => {
       const target = loadAppendTarget(process.env);
       if (!target) throw new Error("sem MODELO_TARGET_SPREADSHEET_ID");
-      const res = await runAppendExisting({ state, competencia, config: loadModeloConfig(process.env), target, log });
-      log("auto_fill_result", { competencia, status: res.status, cells: res.plan?.writes.length ?? 0, rows: res.plan?.appended.length ?? 0, skipped: res.plan?.skipped.length ?? 0 });
+      let failure: unknown;
+      if (process.env.MODELO_AUTO_FILL_ENABLED === "true") {
+        try {
+          const res = await runAppendExisting({ state, competencia, config: loadModeloConfig(process.env), target, log });
+          log("auto_fill_result", { competencia, status: res.status, cells: res.plan?.writes.length ?? 0, rows: res.plan?.appended.length ?? 0, skipped: res.plan?.skipped.length ?? 0 });
+        } catch (error) {
+          failure = error;
+        }
+      }
+      const conversa = loadConversaConfig(process.env);
+      if (conversa.enabled) {
+        // aba "Conversa WhatsApp": independe da competência do fato (usa o mês da planilha-alvo); falha só loga
+        try {
+          const drive = loadDriveConfig(process.env);
+          await runConversaFill({
+            state,
+            spreadsheetId: target.spreadsheetId,
+            config: conversa,
+            sheets: createAppendSheetsApi(serviceAccountSheetsToken(process.env.GOOGLE_APPLICATION_CREDENTIALS ?? "")),
+            drive: createDriveClient({ token: driveTokenProvider(drive) }),
+            rootFolderId: drive.rootFolderId,
+            log,
+          });
+        } catch (error) {
+          log("conversa_failed", { reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
+        }
+      }
+      if (failure) throw failure;
     },
   });
   const sender = runtime.liveSend

@@ -1,3 +1,4 @@
+import { piiMaskEnabled } from "../privacy/pii.ts";
 import { fingerprint, maskJid } from "../inspect/mask.ts";
 import type { NluResult } from "./types.ts";
 
@@ -32,7 +33,7 @@ export function previewReply(text: string | undefined): {
   replyPreview?: string;
 } {
   if (!text?.trim()) return { hasReply: false, replyLen: 0 };
-  let clean = text.replace(/\d{10,}@(?:g\.us|lid|c\.us|s\.whatsapp\.net)/gi, "…jid");
+  let clean = piiMaskEnabled() ? text.replace(/\d{10,}@(?:g\.us|lid|c\.us|s\.whatsapp\.net)/gi, "…jid") : text;
   clean = clean.replace(/https?:\/\/[^\s]+/gi, "…url");
   if (SECRET_MARK.test(clean)) clean = "[redacted]";
   return { hasReply: true, replyLen: text.length, replyPreview: clean.slice(0, 80) };
@@ -62,6 +63,6 @@ export function safeNluLogFields(input: {
 }
 
 export function maskLogValue(value: string): string {
-  if (value.includes("@")) return `${maskJid(value)} fp=${fingerprint(value)}`;
+  if (value.includes("@") && piiMaskEnabled()) return `${maskJid(value)} fp=${fingerprint(value)}`;
   return value;
 }

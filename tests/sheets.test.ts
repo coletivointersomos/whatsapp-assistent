@@ -175,7 +175,10 @@ describe("sheets mapper", () => {
       sourceMessageIds: ["5551999887766@g.us", "msg-2"],
       missing: ["date"],
     };
+    assert.ok(origemWhatsapp(record).includes("5551999887766")); // padrão: sem máscara
+    process.env.PII_MASK_ENABLED = "true";
     const origin = origemWhatsapp(record);
+    delete process.env.PII_MASK_ENABLED;
     assert.equal(origin.includes("5551999887766"), false);
     assert.equal(origin.includes("…7766@g.us"), true);
     assert.equal(origin.includes("msg-2"), true);

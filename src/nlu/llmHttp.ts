@@ -1,3 +1,4 @@
+import { piiMaskEnabled } from "../privacy/pii.ts";
 export function resolveChatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
@@ -15,12 +16,14 @@ export function urlHostPath(url: string): { host: string; path: string } {
 }
 
 export function maskHttpSnippet(text: string, max = 500): string {
+  // segredos (chave/Bearer) sempre removidos; JID só com PII_MASK_ENABLED=true
+  const jid = piiMaskEnabled() ? /\d{10,}@(?:g\.us|lid|c\.us|s\.whatsapp\.net)/gi : /(?!)/g;
   return text
     .replace(/sk-[a-zA-Z0-9._-]+/g, "[key]")
     .replace(/Bearer\s+\S+/gi, "Bearer [key]")
     .replace(/https?:\/\/[^\s"'\\]+/gi, "[url]")
     .replace(/\b[a-f0-9]{32,}\b/gi, "[id]")
-    .replace(/\d{10,}@(?:g\.us|lid|c\.us|s\.whatsapp\.net)/gi, "…jid")
+    .replace(jid, "…jid")
     .slice(0, max);
 }
 

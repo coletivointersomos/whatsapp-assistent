@@ -1,3 +1,4 @@
+import { maskJidsInText } from "../privacy/pii.ts";
 import { applyChannelConfig } from "../adapters/hermes/config.ts";
 import { normalizeOpenWaEnvelope } from "../adapters/hermes/normalize.ts";
 import { decodePlainText, fetchOpenWaImage, isPlainTextMime } from "../adapters/hermes/openwaMedia.ts";
@@ -211,7 +212,7 @@ export async function handleInboundPayload(input: {
   log("engine_decision", {
     decision: processed.decision,
     duplicate: processed.duplicate,
-    conversationId: inbound.conversationId.replace(/\d{10,}(?=@)/, "…"),
+    conversationId: maskJidsInText(inbound.conversationId),
     replyCount: processed.replies.length,
   });
 

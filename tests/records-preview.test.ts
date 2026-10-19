@@ -21,9 +21,12 @@ function msg(partial: Partial<InboundMessage> & Pick<InboundMessage, "externalId
 describe("records preview", () => {
   it("masks JIDs and fingerprints without echoing the full value", () => {
     const jid = "5551999887766@g.us";
+    assert.equal(maskJid(jid), jid); // padrão PII_MASK_ENABLED=false: nada mascarado
+    process.env.PII_MASK_ENABLED = "true";
     assert.equal(maskJid(jid), "…7766@g.us");
     assert.equal(fingerprint(jid).length, 10);
     assert.equal(maskJid(jid).includes("5551999887766"), false);
+    delete process.env.PII_MASK_ENABLED;
   });
 
   it("keeps the exclusive-group complement on one recent complete record", () => {
