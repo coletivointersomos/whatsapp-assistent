@@ -110,10 +110,9 @@ describe("POST /resume pending question", () => {
       clock: { now: () => new Date(T0.getTime() + 16 * 60 * 1000) },
     });
     assert.equal(result.body.decision, "resume_pending_question");
-    assert.equal(sender.calls.length, 1);
-    assert.equal(sender.calls[0].chatId, TEST_GROUP);
-    assert.equal(sender.calls[0].text, "Foi hoje? E qual foi o posto?");
-    assert.equal((result.body.send as { attempted: boolean }).attempted, true);
+    // 2g: a pergunta é calculada, mas grupo nunca recebe envio.
+    assert.equal(sender.calls.length, 0);
+    assert.equal((result.body.send as { reason: string }).reason, "group_never");
   });
 
   it("does not send while the pause is still active", async () => {
@@ -175,8 +174,8 @@ describe("POST /resume pending question", () => {
     const first = await handleResume({ runtime: cfg, state, sender, clock: { now: () => T0 } });
     const second = await handleResume({ runtime: cfg, state, sender, clock: { now: () => T0 } });
     assert.equal(first.body.decision, "resume_pending_question");
-    assert.equal(second.body.reason, "already_asked");
-    assert.equal(sender.calls.length, 1);
+    assert.equal(sender.calls.length, 0); // 2g: grupo nunca recebe envio
+    assert.notEqual(second.body.decision, "sent");
   });
 
   it("can resume two different records that share the same question text", async () => {
@@ -189,11 +188,7 @@ describe("POST /resume pending question", () => {
     const second = await handleResume({ runtime: cfg, state, sender, clock: { now: () => T0 } });
     assert.equal(first.body.decision, "resume_pending_question");
     assert.equal(second.body.decision, "resume_pending_question");
-    assert.notEqual(first.body.recordId, second.body.recordId);
-    assert.equal(sender.calls.length, 2);
-    assert.equal(sender.calls[0].text, sender.calls[1].text);
-    assert.equal(sender.calls[0].chatId, TEST_GROUP);
-    assert.equal(sender.calls[1].chatId, TEST_GROUP);
+    assert.equal(sender.calls.length, 0); // 2g: grupo nunca recebe envio (nada é marcado como enviado)
   });
 
   it("calculates the question when LIVE_SEND=false but does not send", async () => {
@@ -207,7 +202,7 @@ describe("POST /resume pending question", () => {
       clock: { now: () => T0 },
     });
     assert.equal(result.body.decision, "resume_pending_question");
-    assert.equal((result.body.send as { reason: string }).reason, "live_send_disabled");
+    assert.equal((result.body.send as { reason: string }).reason, "group_never");
     assert.equal(sender.calls.length, 0);
     const later = await handleResume({
       runtime: runtime({ liveSend: true }),
@@ -216,7 +211,7 @@ describe("POST /resume pending question", () => {
       clock: { now: () => T0 },
     });
     assert.equal(later.body.decision, "resume_pending_question");
-    assert.equal(sender.calls.length, 1);
+    assert.equal(sender.calls.length, 0); // 2g: mesmo com LIVE_SEND=true, grupo nunca
   });
 
   it("with LIVE_SEND=true still refuses a group that is not TEST_GROUP_JID even if allowlisted", async () => {
@@ -316,7 +311,7 @@ describe("POST /resume pending question", () => {
       const json = (await allowed.json()) as { decision?: string; send?: { attempted?: boolean; reason?: string } };
       assert.equal(json.decision, "resume_pending_question");
       assert.equal(json.send?.attempted, false);
-      assert.equal(json.send?.reason, "live_send_disabled");
+      assert.equal(json.send?.reason, "group_never");
     } finally {
       await new Promise<void>((resolve, reject) => {
         app.server.close((err) => (err ? reject(err) : resolve()));

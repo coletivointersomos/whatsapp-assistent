@@ -32,6 +32,10 @@ export function createOpenWaSender(input: {
   const fetchImpl = input.fetchImpl ?? fetch;
   return {
     async sendText({ sessionId, chatId, text }) {
+      // Trava final (2g): grupo/transmissão/canal nunca, mesmo que alguém chame o sender direto.
+      if (/@(g\.us|broadcast|newsletter)$/i.test(chatId.trim()) || /^status@/i.test(chatId.trim())) {
+        return { ok: false, skipped: true, reason: "group_never" };
+      }
       const url = buildOpenWaSendUrl(input.baseUrl, input.sendPath, sessionId);
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (input.apiKey) headers[input.apiKeyHeader] = input.apiKey;

@@ -102,10 +102,10 @@ describe("controlled live send", () => {
     const sender = new RecordingSender();
     const state = applyChannelConfig(seedState(), channel);
     const result = await handleInboundPayload({
-      runtime: runtime({ liveSend: false }),
+      runtime: runtime({ liveSend: false, adminAlertJid: OTHER }),
       state,
       sender,
-      envelope: envelope({ id: "inc-1", chatId: TEST_GROUP, body: INCOMPLETE }),
+      envelope: envelope({ id: "inc-1", chatId: OTHER, body: INCOMPLETE }),
     });
     assert.equal(result.body.decision, "record_incomplete");
     assert.equal((result.body.send as { attempted: boolean }).attempted, false);
@@ -113,32 +113,32 @@ describe("controlled live send", () => {
     assert.equal(sender.calls.length, 0);
   });
 
-  it("sends only to the allowlisted test group when LIVE_SEND=true", async () => {
+  it("sends only to the private chat == ADMIN_ALERT_JID when LIVE_SEND=true (2g)", async () => {
     const sender = new RecordingSender();
     const state = applyChannelConfig(seedState(), channel);
     const result = await handleInboundPayload({
-      runtime: runtime({ liveSend: true }),
+      runtime: runtime({ liveSend: true, adminAlertJid: OTHER }),
       state,
       sender,
-      envelope: envelope({ id: "inc-2", chatId: TEST_GROUP, body: INCOMPLETE }),
+      envelope: envelope({ id: "inc-2", chatId: OTHER, body: INCOMPLETE }),
     });
     assert.equal(result.body.decision, "record_incomplete");
     assert.equal(sender.calls.length, 1);
-    assert.equal(sender.calls[0].chatId, TEST_GROUP);
+    assert.equal(sender.calls[0].chatId, OTHER);
     assert.match(sender.calls[0].text, /hoje|posto/i);
   });
 
-  it("processes another allowlisted chat but does not send outside the test group", async () => {
+  it("processes the allowlisted group but never sends to a group (2g), even the test group", async () => {
     const sender = new RecordingSender();
     const state = applyChannelConfig(seedState(), channel);
     const result = await handleInboundPayload({
-      runtime: runtime({ liveSend: true }),
+      runtime: runtime({ liveSend: true, adminAlertJid: OTHER }),
       state,
       sender,
-      envelope: envelope({ id: "inc-other", chatId: OTHER, body: INCOMPLETE }),
+      envelope: envelope({ id: "inc-other", chatId: TEST_GROUP, body: INCOMPLETE }),
     });
     assert.equal(result.body.decision, "record_incomplete");
-    assert.equal((result.body.send as { reason: string }).reason, "not_test_group");
+    assert.equal((result.body.send as { reason: string }).reason, "group_never");
     assert.equal(sender.calls.length, 0);
   });
 
@@ -182,15 +182,15 @@ describe("controlled live send", () => {
   it("does not send again on duplicate externalId", async () => {
     const sender = new RecordingSender();
     const state = applyChannelConfig(seedState(), channel);
-    const payload = envelope({ id: "dup-1", chatId: TEST_GROUP, body: INCOMPLETE });
+    const payload = envelope({ id: "dup-1", chatId: OTHER, body: INCOMPLETE });
     const first = await handleInboundPayload({
-      runtime: runtime({ liveSend: true }),
+      runtime: runtime({ liveSend: true, adminAlertJid: OTHER }),
       state,
       sender,
       envelope: payload,
     });
     const second = await handleInboundPayload({
-      runtime: runtime({ liveSend: true }),
+      runtime: runtime({ liveSend: true, adminAlertJid: OTHER }),
       state,
       sender,
       envelope: payload,
@@ -205,10 +205,10 @@ describe("controlled live send", () => {
     const sender = new RecordingSender();
     const state = applyChannelConfig(seedState(), channel);
     const result = await handleInboundPayload({
-      runtime: runtime({ liveSend: true }),
+      runtime: runtime({ liveSend: true, adminAlertJid: OTHER }),
       state,
       sender,
-      envelope: envelope({ id: "complete-1", chatId: TEST_GROUP, body: COMPLETE }),
+      envelope: envelope({ id: "complete-1", chatId: OTHER, body: COMPLETE }),
     });
     assert.equal(result.body.decision, "record_created");
     assert.equal((result.body.send as { reason: string }).reason, "no_replies");
