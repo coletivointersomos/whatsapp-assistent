@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, it } from "node:test";
 import { seedState } from "../src/config/seed.ts";
 import { decideAdminAlert } from "../src/sheets/adminAlert.ts";
-import { ALANA_SETEMBRO_PRINT, buildOficialSheet, oficialTabName, tripTotal } from "../src/sheets/oficial.ts";
+import { buildOficialSheet, oficialTabName, tripTotal } from "../src/sheets/oficial.ts";
 import { planPagamento } from "../src/sheets/pagamento.ts";
 import {
   buildRascunhoFromState,
@@ -13,7 +13,7 @@ import {
   rascunhoKey,
   type RascunhoRow,
 } from "../src/sheets/rascunho.ts";
-import { setembroManoelState } from "../src/sheets/setembroManoel.ts";
+import { ALANA_SETEMBRO_PRINT, setembroManoelState } from "./fixtures/setembroManoel.ts";
 import { planGroupSweep } from "../src/sheets/sweep.ts";
 import { alertsFromValidation, validateRascunho } from "../src/sheets/validate.ts";
 import { writeSessionToSheet, writeStateToGoogleSheet } from "../src/sheets/write.ts";

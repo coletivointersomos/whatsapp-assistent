@@ -1,10 +1,9 @@
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { loadState } from "../persistence/store.ts";
-import { ALANA_SETEMBRO_PRINT } from "../sheets/oficial.ts";
 import { planPagamento } from "../sheets/pagamento.ts";
-import { setembroManoelState } from "../sheets/setembroManoel.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const defaultStore = join(root, "data/store.json");
@@ -21,12 +20,19 @@ function isCliEntry(): boolean {
   return import.meta.url === pathToFileURL(resolve(entry)).href;
 }
 
+type ExpectedTotals = { freight?: number; diesel?: number; expenses?: number; net?: number };
+
+/**
+ * Replay da folha a partir de um store (nada é escrito).
+ *   tsx src/cli/sheetsReplay.ts [--file data/store.json] [--expect totais.json]
+ * --expect: JSON {freight, diesel, expenses, net} para comparar (sai 1 se divergir).
+ */
 export function runSheetsReplay(args: string[]): { stdout: string; exitCode: number } {
-  const file = flagValue(args, "--file");
-  const state = args.includes("--setembro") || !file ? setembroManoelState() : loadState(file ?? defaultStore);
+  const file = flagValue(args, "--file") ?? defaultStore;
+  const expectFile = flagValue(args, "--expect");
+  const state = loadState(file);
+  const print: ExpectedTotals | undefined = expectFile ? (JSON.parse(readFileSync(expectFile, "utf8")) as ExpectedTotals) : undefined;
   const plan = planPagamento({ state, commissionRate: 0.11 });
-  const oficial = plan.oficial[0];
-  const print = ALANA_SETEMBRO_PRINT;
   const lines = [
     `Rascunho: ${plan.merged.length} linhas (insert ${plan.toInsert.length})`,
     `Oficial pronta: ${plan.oficialReady ? "sim" : "não"}`,
@@ -35,29 +41,31 @@ export function runSheetsReplay(args: string[]): { stdout: string; exitCode: num
     `Incompleto: ${plan.validation.incomplete.length}`,
     `Abas: ${plan.oficial.map((item) => item.tabName).join(", ") || "(nenhuma)"}`,
   ];
-  if (oficial) {
+  const ref = (value: number | undefined) => (value === undefined ? "" : ` (esperado ${value})`);
+  for (const oficial of plan.oficial) {
     lines.push(
-      `Viagens: ${oficial.totals.tripCount}`,
-      `Frete: ${oficial.totals.freight} (print ${print.freight})`,
-      `Diesel: ${oficial.totals.diesel} (print ${print.diesel})`,
-      `Despesas: ${oficial.totals.expenses} (print ${print.expenses})`,
-      `Líquido: ${oficial.totals.net} (print ${print.net})`,
+      `[${oficial.tabName}] Viagens: ${oficial.totals.tripCount}`,
+      `Frete: ${oficial.totals.freight}${ref(print?.freight)}`,
+      `Diesel: ${oficial.totals.diesel}${ref(print?.diesel)}`,
+      `Despesas: ${oficial.totals.expenses}${ref(print?.expenses)}`,
+      `Depósitos: ${oficial.totals.deposits}`,
+      `Líquido: ${oficial.totals.net}${ref(print?.net)}`,
     );
-    const luis = oficial.values.find((row) => row.some((cell) => String(cell).includes("Luís Eduardo") || String(cell).includes("Luis Eduardo")));
-    lines.push(`16/09 Luís Eduardo: ${luis ? "ok" : "faltou"}`);
-    const sacos = oficial.values.find((row) => row.some((cell) => String(cell).includes("896 sacos")));
-    lines.push(`896 sacos × 4: ${sacos ? "ok" : "faltou"}`);
   }
   if (plan.alerts.length) {
     lines.push("Alertas admin:");
     for (const text of plan.alerts) lines.push(`- ${text}`);
   }
-  const mismatch =
-    oficial &&
-    (oficial.totals.freight !== print.freight ||
-      oficial.totals.diesel !== print.diesel ||
-      oficial.totals.expenses !== print.expenses ||
-      oficial.totals.net !== print.net);
+  const oficial = plan.oficial[0];
+  const differs = (got: number, want?: number) => want !== undefined && got !== want;
+  const mismatch = Boolean(
+    print &&
+      oficial &&
+      (differs(oficial.totals.freight, print.freight) ||
+        differs(oficial.totals.diesel, print.diesel) ||
+        differs(oficial.totals.expenses, print.expenses) ||
+        differs(oficial.totals.net, print.net)),
+  );
   return { stdout: `${lines.join("\n")}\n`, exitCode: mismatch ? 1 : 0 };
 }
 

@@ -1,5 +1,5 @@
-import { seedState } from "../config/seed.ts";
-import type { AppState, OperationalRecord, StoredMessage } from "../domain/types.ts";
+import { seedState } from "../../src/config/seed.ts";
+import type { AppState, OperationalRecord, StoredMessage } from "../../src/domain/types.ts";
 
 function msg(partial: Pick<StoredMessage, "externalId" | "sentAt"> & Partial<StoredMessage>): StoredMessage {
   return {
@@ -172,3 +172,13 @@ export function setembroManoelState(): AppState {
 
   return state;
 }
+
+/** Totais do print da Alana (setembro/2026) — referência de teste, não de produção. */
+export const ALANA_SETEMBRO_PRINT = {
+  competencia: "2026-09",
+  freight: 54148,
+  diesel: 25619.6,
+  expenses: 4974,
+  net: 23554.4,
+  commissionRate: 0.11,
+};

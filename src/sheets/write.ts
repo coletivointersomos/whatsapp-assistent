@@ -10,6 +10,7 @@ import {
   recordToRow,
   resumoGrid,
   resumoTabName,
+  sourceSentAt,
   tabForRecord,
   type ControleRow,
   type SheetRow,
@@ -47,7 +48,7 @@ export function sheetGroupsFromState(
   }
   const buckets = new Map<string, OperationalRecord[]>();
   for (const record of records) {
-    const tab = tabForRecord(record);
+    const tab = tabForRecord(record, new Date(), sourceSentAt(state, record));
     const list = buckets.get(tab) ?? [];
     list.push(record);
     buckets.set(tab, list);
@@ -65,7 +66,7 @@ export function controleGroupsFromState(
   const records = recordsForSheet(state, sessionStartedAt);
   const buckets = new Map<string, OperationalRecord[]>();
   for (const record of records) {
-    const tab = tabForRecord(record);
+    const tab = tabForRecord(record, new Date(), sourceSentAt(state, record));
     const list = buckets.get(tab) ?? [];
     list.push(record);
     buckets.set(tab, list);

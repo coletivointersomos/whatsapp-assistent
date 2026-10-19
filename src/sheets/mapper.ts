@@ -1,6 +1,7 @@
 import { maskJid } from "../inspect/mask.ts";
 import { maskFields, maskJidsInText, MASK_MARK } from "../privacy/pii.ts";
 import type { AppState, OperationalRecord, StoredMessage } from "../domain/types.ts";
+import { monitoredVehicle } from "../config/monitored.ts";
 
 export type SheetRow = {
   codigo: string;
@@ -217,12 +218,22 @@ export function compactPlaca(raw?: string): string {
   return (raw ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
-/** OCR do papel: TFA7A54 ≈ TFA7A94. */
+function oneCharSlip(a: string, b: string): boolean {
+  if (a.length !== b.length || a === b) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) diff += 1;
+  return diff === 1;
+}
+
+/** OCR do papel: alias conhecido (padrão TFA7A54) ≈ placa acompanhada; com dica da placa, 1 caractere trocado também. */
 export function normalizePlaca(raw?: string, hint?: string): string {
   const compact = compactPlaca(raw);
   const hintC = compactPlaca(hint);
   const isPlate = /^[A-Z]{3}\d[A-Z0-9]{3}$/.test(compact);
-  if (isPlate && (compact === "TFA7A54" || (hintC === "TFA7A94" && /^TFA7A.4$/.test(compact)))) return "TFA7A94";
+  const monitored = monitoredVehicle();
+  if (isPlate && (monitored.ocrAliases.includes(compact) || (hintC === monitored.plate && oneCharSlip(compact, monitored.plate)))) {
+    return monitored.plate;
+  }
   if (isPlate) return compact;
   return hintC && /^[A-Z]{3}\d[A-Z0-9]{3}$/.test(hintC) ? hintC : compact;
 }
@@ -376,7 +387,7 @@ export function recordToControleRow(state: AppState, record: OperationalRecord):
       record.kind === "viagem"
         ? recebidoFlag(record.viagem?.note, record.viagem?.receipt, record.viagem?.freightTotal)
         : "",
-    motorista: record.viagem?.motorista?.trim() || (normalizePlaca(mapped.veiculo) === "TFA7A94" ? "Manoel" : mapped.motorista),
+    motorista: record.viagem?.motorista?.trim() || (normalizePlaca(mapped.veiculo) === monitoredVehicle().plate ? monitoredVehicle().driver : mapped.motorista),
     placa: normalizePlaca(mapped.veiculo) || mapped.veiculo,
     mes: date.slice(0, 7),
   };
@@ -426,9 +437,24 @@ export function resumoGrid(caixaTab: string): string[][] {
   ];
 }
 
-export function tabForRecord(record: OperationalRecord, now = new Date()): string {
+/**
+ * Mês da aba = data do FATO (campo date do registro). Sem data no registro: data de envio da
+ * mensagem de origem (factFallbackIso). Só sem nenhuma das duas cai no relógio.
+ */
+export function tabForRecord(record: OperationalRecord, now = new Date(), factFallbackIso?: string): string {
   const body = record.viagem ?? record.despesa ?? record.abastecimento;
-  return caixaTabName(normalizePlaca(body?.vehicle) || body?.vehicle, body?.date, now);
+  const factDate = body?.date && /^\d{4}-\d{2}/.test(body.date) ? body.date : factFallbackIso;
+  return caixaTabName(normalizePlaca(body?.vehicle) || body?.vehicle, factDate, now);
+}
+
+/** Data (AAAA-MM-DD, horário de Brasília, UTC-3) de envio da 1ª mensagem de origem — fallback do mês do fato. */
+export function sourceSentAt(state: AppState, record: OperationalRecord): string | undefined {
+  for (const id of record.sourceMessageIds) {
+    const found = state.messages.find((item) => item.externalId === id);
+    const ms = found?.sentAt ? Date.parse(found.sentAt) : NaN;
+    if (Number.isFinite(ms)) return new Date(ms - 3 * 3600_000).toISOString().slice(0, 10);
+  }
+  return undefined;
 }
 
 /** Sem `record_id` o registro não entra no sync. */

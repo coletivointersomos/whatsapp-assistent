@@ -9,6 +9,8 @@ import {
   recordToRow,
 } from "./mapper.ts";
 import { maskFields, maskJidsInText } from "../privacy/pii.ts";
+import { isMonitoredDriverName, monitoredVehicle } from "../config/monitored.ts";
+import { classifyAbastecimento, classifyDespesa, legacyTipo } from "./classify.ts";
 
 export type RascunhoTipo =
   | "viagem"
@@ -16,6 +18,10 @@ export type RascunhoTipo =
   | "abastecimento_prazo"
   | "despesa"
   | "deposito"
+  | "adiantamento"
+  | "pagamento"
+  | "pedagio"
+  | "balanca"
   | "outro";
 
 export type RascunhoStatus = "novo" | "incompleto" | "promovido" | "ignorado" | "duplicado" | "confirmar";
@@ -142,7 +148,8 @@ export function rascunhoFingerprint(row: Pick<RascunhoRow, "competencia" | "tipo
   const money = String(row.valor ?? "").replace(/[^\d]/g, "");
   return [
     norm(row.competencia),
-    norm(row.tipo),
+    // tipo antigo: pedágio/balança/adiantamento/pagamento eram "despesa" antes do 2c
+    norm(legacyTipo(row.tipo)),
     norm(row.data_doc),
     norm(row.origem),
     norm(row.destino),
@@ -168,16 +175,17 @@ function messageSource(message?: StoredMessage): string {
 function motoristaOf(state: AppState, record: OperationalRecord, placa: string): string {
   const named = record.viagem?.motorista?.trim();
   if (named && !/^jo[aã]o$/i.test(named)) return named;
-  if (placa === "TFA7A94") return "Manoel";
+  const monitored = monitoredVehicle();
+  if (placa === monitored.plate) return monitored.driver;
   return state.drivers.find((d) => d.id === record.driverId)?.name ?? record.driverId;
 }
 
-function abastecimentoTipo(payment?: string): RascunhoTipo {
-  return /prazo|fiado|assinada|a prazo/i.test(payment ?? "") ? "abastecimento_prazo" : "abastecimento_vista";
+function abastecimentoTipo(payment?: string, note?: string): RascunhoTipo {
+  return classifyAbastecimento(payment, note);
 }
 
-function despesaTipo(description?: string, note?: string): RascunhoTipo {
-  return /dep[oó]sit/i.test(`${description ?? ""} ${note ?? ""}`) ? "deposito" : "despesa";
+function despesaTipo(description?: string, note?: string, payment?: string): RascunhoTipo {
+  return classifyDespesa(description, note, payment);
 }
 
 const RASCUNHO_TEXT: (keyof RascunhoRow)[] = [
@@ -208,10 +216,37 @@ export function maskRascunhoRowPii(row: RascunhoRow): RascunhoRow {
   return printChanged ? { ...next, fingerprint: rascunhoFingerprint(next) } : next;
 }
 
-export function isManoelTfaRow(row: Pick<RascunhoRow, "motorista" | "placa">): boolean {
-  if (normalizePlaca(row.placa) === "TFA7A94") return true;
-  return /manoel/i.test(row.motorista);
+/** Mercosul (SCF 4D04) em qualquer lugar; formato antigo (ABC-1234) só depois de "placa". */
+const MERCOSUL_IN_TEXT = /\b([A-Z]{3})[\s-]?(\d[A-Z]\d{2})\b/g;
+const OLD_PLATE_IN_TEXT = /\bPLACA:?\s*([A-Z]{3})[\s-]?(\d{4})\b/g;
+
+/** Placas citadas no texto livre (ex.: "SCF 4D04"), já normalizadas. */
+export function platesInText(text: string): string[] {
+  const found = new Set<string>();
+  const upper = (text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase();
+  for (const pattern of [MERCOSUL_IN_TEXT, OLD_PLATE_IN_TEXT]) {
+    for (const match of upper.matchAll(pattern)) found.add(normalizePlaca(`${match[1]}${match[2]}`));
+  }
+  return [...found];
 }
+
+/**
+ * Só o caminhão acompanhado (MONITORED_PLATE, padrão TFA7A94) entra na folha.
+ * Placa preenchida e diferente (ex.: SCF4D04) fica de fora, mesmo com o nome do motorista.
+ * Sem placa: entra pelo nome do motorista, desde que o texto não cite outra placa.
+ */
+export function isMonitoredRow(row: Pick<RascunhoRow, "motorista" | "placa"> & Partial<Pick<RascunhoRow, "descricao" | "posto">>): boolean {
+  const monitored = monitoredVehicle();
+  const placa = normalizePlaca(row.placa);
+  if (/^[A-Z]{3}\d[A-Z0-9]{3}$/.test(placa)) return placa === monitored.plate;
+  const cited = platesInText(`${row.descricao ?? ""} ${row.posto ?? ""}`);
+  if (cited.some((item) => item !== monitored.plate)) return false;
+  if (cited.includes(monitored.plate)) return true;
+  return isMonitoredDriverName(row.motorista, monitored);
+}
+
+/** Compatibilidade: nome antigo. */
+export const isManoelTfaRow = isMonitoredRow;
 
 export function isOperationalStoreMessage(message: StoredMessage, botIds: string[]): boolean {
   if (botIds.includes(message.authorId) || message.authorRole === "bot") return false;
@@ -261,11 +296,11 @@ export function recordToRascunho(state: AppState, record: OperationalRecord): Ra
     }
     if (record.viagem?.unitPrice) valorUnitario = String(record.viagem.unitPrice);
   } else if (record.kind === "abastecimento") {
-    tipo = abastecimentoTipo(record.abastecimento?.payment);
+    tipo = abastecimentoTipo(record.abastecimento?.payment, record.abastecimento?.note);
     valor = moneyCell(record.abastecimento?.totalBrl);
     descricao = record.abastecimento?.note ?? mapped.posto_local;
   } else if (record.kind === "despesa") {
-    tipo = despesaTipo(record.despesa?.description, record.despesa?.note);
+    tipo = despesaTipo(record.despesa?.description, record.despesa?.note, record.despesa?.payment);
     valor = moneyCell(record.despesa?.amountBrl);
     descricao = record.despesa?.description || record.despesa?.note || "";
   }
@@ -445,7 +480,7 @@ function originNote(row: RascunhoRow, other: RascunhoRow): string {
  */
 export function compareSameValor(row: RascunhoRow, other: RascunhoRow): SameValorVerdict {
   const origin = originNote(row, other);
-  if (row.tipo !== other.tipo) return { decision: "diferente", reason: `tipos diferentes; ${origin}` };
+  if (legacyTipo(row.tipo) !== legacyTipo(other.tipo)) return { decision: "diferente", reason: `tipos diferentes; ${origin}` };
   const docsA = rascunhoDocNumbers(row);
   const docsB = rascunhoDocNumbers(other);
   if (docsA.size && docsB.size) {

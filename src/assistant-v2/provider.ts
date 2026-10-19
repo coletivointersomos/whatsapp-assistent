@@ -6,7 +6,7 @@ import {
   urlHostPath,
 } from "../nlu/llmHttp.ts";
 import type { LlmHttpInfo, LlmProviderHooks } from "../nlu/llmProvider.ts";
-import { ASSISTANT_V2_SYSTEM_PROMPT, buildAssistantV2UserPayload } from "./prompt.ts";
+import { buildAssistantV2SystemPrompt, buildAssistantV2UserPayload } from "./prompt.ts";
 import { parseAssistantV2Response } from "./schema.ts";
 import { emptyAssistantV2, type AssistantV2Context, type AssistantV2Provider } from "./types.ts";
 
@@ -20,7 +20,7 @@ export function buildAssistantV2Messages(
   const text = buildAssistantV2UserPayload(rest);
   if (withImage && imageDataUrl) {
     return [
-      { role: "system", content: ASSISTANT_V2_SYSTEM_PROMPT },
+      { role: "system", content: buildAssistantV2SystemPrompt() },
       {
         role: "user",
         content: [
@@ -31,7 +31,7 @@ export function buildAssistantV2Messages(
     ];
   }
   return [
-    { role: "system", content: ASSISTANT_V2_SYSTEM_PROMPT },
+    { role: "system", content: buildAssistantV2SystemPrompt() },
     { role: "user", content: text },
   ];
 }

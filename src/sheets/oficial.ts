@@ -1,15 +1,7 @@
 import type { CellFill } from "./googleSheets.ts";
 import { parseSacosFreight } from "./mapper.ts";
 import type { RascunhoRow } from "./rascunho.ts";
-
-export const ALANA_SETEMBRO_PRINT = {
-  competencia: "2026-09",
-  freight: 54148,
-  diesel: 25619.6,
-  expenses: 4974,
-  net: 23554.4,
-  commissionRate: 0.11,
-};
+import { monitoredVehicle } from "../config/monitored.ts";
 
 const YELLOW = { red: 1, green: 0.95, blue: 0.55 };
 const GREEN = { red: 0.78, green: 0.9, blue: 0.78 };
@@ -47,14 +39,14 @@ const MONTHS_PT = [
   "DEZEMBRO",
 ];
 
-export function oficialTabName(competencia: string, motorista = "MANOEL"): string {
+export function oficialTabName(competencia: string, motorista = monitoredVehicle().driver): string {
   const slug = motorista
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/[^A-Za-z0-9]+/g, "")
     .toUpperCase()
-    .slice(0, 16) || "MANOEL";
-  return `TFA-${slug}-${competencia}`;
+    .slice(0, 16) || "MOTORISTA";
+  return `${monitoredVehicle().plate.slice(0, 3)}-${slug}-${competencia}`;
 }
 
 export function monthLabel(competencia: string): string {
@@ -124,10 +116,15 @@ export function buildOficialSheet(input: {
     .sort((a, b) => a.data_doc.localeCompare(b.data_doc));
   const vista = input.rows.filter((row) => row.tipo === "abastecimento_vista");
   const prazo = input.rows.filter((row) => row.tipo === "abastecimento_prazo");
-  const despesas = input.rows.filter((row) => row.tipo === "despesa");
-  const deposits = input.rows.filter((row) => row.tipo === "deposito");
-  const motorista = input.motorista ?? trips[0]?.motorista ?? "Manoel";
-  const placa = input.placa ?? trips[0]?.placa ?? "TFA7A94";
+  // pedágio e balança são gastos do caminhão (bloco DESPESAS); Pix de acerto entra com os depósitos.
+  const despesas = input.rows.filter((row) => row.tipo === "despesa" || row.tipo === "pedagio" || row.tipo === "balanca");
+  const deposits = input.rows.filter((row) => row.tipo === "deposito" || row.tipo === "pagamento");
+  const adiantamentos = input.rows.filter((row) => row.tipo === "adiantamento");
+  const monitored = monitoredVehicle();
+  const motorista = input.motorista ?? trips[0]?.motorista ?? monitored.driver;
+  const placa = input.placa ?? trips[0]?.placa ?? monitored.plate;
+  const frota = placa.slice(0, 3).toUpperCase();
+  const adiantamentoTotal = money(adiantamentos.reduce((sum, row) => sum + asNumber(row.valor), 0));
 
   const freight = money(trips.reduce((sum, row) => sum + tripTotal(row), 0));
   const diesel = money(
@@ -155,13 +152,13 @@ export function buildOficialSheet(input: {
   row(["COMISSÃO", "", "", "", "", "", "DEPOSITOU EM CONTA", "", "", "RECEBEU DE FRETE", ""]);
   row(["INSS+IRRF", sheetNum(0), "", "", "", "", "DATA", "VALOR", "", "ABASTECEU", ""]);
   row(["VALE", sheetNum(0), "", "", "", "", "", "", "", "DESPESAS", ""]);
-  row(["ADIANTAMENTO", sheetNum(0)]);
+  row(["ADIANTAMENTO", sheetNum(adiantamentoTotal)]);
   row([]);
   row(["A PAGAR", "", "", "", "", "", "", "", "", "LÍQUIDO", ""]);
-  row(["", "", "", "", "", "", "", "", "", "ainda com o Sr. Manoel", ""]);
+  row(["", "", "", "", "", "", "", "", "", `ainda com o Sr. ${motorista}`, ""]);
   row([]);
-  row([`MOTORISTA TFA — ${monthLabel(input.competencia)}`, "", "", `${motorista}`, placa]);
-  row(["TFA — MANOEL"]);
+  row([`MOTORISTA ${frota} — ${monthLabel(input.competencia)}`, "", "", `${motorista}`, placa]);
+  row([`${frota} — ${motorista.toUpperCase()}`]);
   row(["VIAGENS"]);
   pushes(["DATA", "ORIGEM", "DESTINO", "MATERIAL", "TONELADAS", "t", "VALOR", "TOTAL", "%", "COMISSÃO", "OBS"]);
 
