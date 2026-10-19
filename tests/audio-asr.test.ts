@@ -104,7 +104,8 @@ async function run(opts: { id: string; asr?: SpeechToText; config?: AsrRuntimeCo
 }
 
 describe("áudio de grupo autorizado → ASR → NLU", () => {
-  it("transcreve o áudio baixado do OpenWA e alimenta o engine como texto, com PII mascarada", async () => {
+  it("transcreve o áudio baixado do OpenWA e alimenta o engine como texto, sem máscara (padrão, PII_MASK_ENABLED desligado)", async () => {
+    delete process.env.PII_MASK_ENABLED;
     const media = mediaFetch(OGG);
     const asr = mockAsr("hoje abasteci 200 litros no posto X deu 1200 pago, pix 11987654321");
     const { state, result, events } = await run({ id: "aud-1", asr: asr.asr, fetchImpl: media.impl });
@@ -119,9 +120,32 @@ describe("áudio de grupo autorizado → ASR → NLU", () => {
     assert.equal(JSON.stringify(events).includes("11987654321"), false);
     const stored = state.messages.find((m) => m.externalId === "aud-1");
     assert.equal(stored?.type, "audio_info");
+    assert.equal(stored?.text, "hoje abasteci 200 litros no posto X deu 1200 pago, pix 11987654321");
+    assert.match(String(result.body.decision), /record_(created|incomplete)/);
+  });
+  it("transcreve o áudio baixado do OpenWA e alimenta o engine como texto, com PII mascarada quando PII_MASK_ENABLED=true (ponto único pii.ts)", async () => {
+    process.env.PII_MASK_ENABLED = "true";
+    try {
+    const media = mediaFetch(OGG);
+    const asr = mockAsr("hoje abasteci 200 litros no posto X deu 1200 pago, pix 11987654321");
+    const { state, result, events } = await run({ id: "aud-1m", asr: asr.asr, fetchImpl: media.impl });
+    assert.equal(asr.calls.length, 1);
+    assert.equal(asr.calls[0]!.mimetype, "audio/ogg");
+    assert.equal(asr.calls[0]!.data, OGG.toString("base64"));
+    assert.ok(media.urls[0]!.includes("/media"));
+    const ok = events.find((e) => e.event === "asr_ok");
+    assert.ok(ok);
+    assert.equal(ok.fields?.bytes, OGG.length);
+    assert.equal(JSON.stringify(events).includes("abasteci"), false, "transcrição não vai para o log");
+    assert.equal(JSON.stringify(events).includes("11987654321"), false);
+    const stored = state.messages.find((m) => m.externalId === "aud-1m");
+    assert.equal(stored?.type, "audio_info");
     assert.equal(stored?.text, "hoje abasteci 200 litros no posto X deu 1200 pago, pix …4321");
     assert.match(String(result.body.decision), /record_(created|incomplete)/);
     assert.doesNotMatch(JSON.stringify(state), /11987654321/);
+      } finally {
+      delete process.env.PII_MASK_ENABLED;
+    }
   });
 
   it("falha do ASR: registra asr_failed e mantém o comportamento audio_info atual", async () => {

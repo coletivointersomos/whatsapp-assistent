@@ -93,7 +93,8 @@ describe("2d Drive (só criar)", () => {
     assert.equal(pdf[0]!.competencia, "2026-10");
     assert.equal(pdf[0]!.name, "00003078-Comprovante_17-10-2026 141044.pdf");
     const cpf = buildArchiveItems({ externalId: "e", sentAt: "2026-10-05T13:00:00.000Z", text: "meu cpf 529.982.247-25" });
-    assert.doesNotMatch(cpf[0]!.data.toString(), /529\.982/);
+    // máscara desligada (padrão): texto vai como veio
+    assert.match(cpf[0]!.data.toString(), /529\.982\.247-25/);
   });
 
   it("archiveToDrive puts a photo into AAAA-MM Mês/fotos of the fact month", async () => {

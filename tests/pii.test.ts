@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { isValidCpf, maskJidsInText, maskPii } from "../src/privacy/pii.ts";
 import { maskRecordPiiInPlace, maskStateRecordsPii } from "../src/privacy/records.ts";
 import { seedState } from "../src/config/seed.ts";
@@ -10,6 +10,14 @@ const CPF = "529.982.247-25";
 const CPF_BARE = "52998224725";
 
 describe("máscara de PII (módulo puro)", () => {
+  // Máscara desligada por padrão desde 19/10/2026; aqui testa o comportamento religado.
+  before(() => {
+    process.env.PII_MASK_ENABLED = "true";
+  });
+  after(() => {
+    delete process.env.PII_MASK_ENABLED;
+  });
+
   it("CPF formatado ou só dígitos (DV válido) vira ***.***.***-NN", () => {
     assert.equal(isValidCpf(CPF), true);
     assert.equal(isValidCpf("11111111111"), false);
@@ -112,5 +120,22 @@ describe("máscara de PII (módulo puro)", () => {
     state.records.push({ ...record, id: "r2", despesa: { ...record.despesa, note: "cel 11987654321" } });
     assert.equal(maskStateRecordsPii(state), 1);
     assert.equal(state.records.at(-1)?.despesa?.note, "cel …4321");
+  });
+});
+
+describe("máscara desligada (padrão, decisão de 19/10/2026)", () => {
+  it("maskPii / maskJidsInText / maskFields / registros são no-op sem PII_MASK_ENABLED=true", async () => {
+    delete process.env.PII_MASK_ENABLED;
+    const { maskPii, maskJidsInText, maskFields, piiMaskEnabled } = await import("../src/privacy/pii.ts");
+    const { maskStateRecordsPii } = await import("../src/privacy/records.ts");
+    assert.equal(piiMaskEnabled(), false);
+    const text = "CPF 529.982.247-25 tel (11) 98765-4321 pix 11987654321 ag 1234 conta 12345-6 5511999990000@c.us";
+    assert.equal(maskPii(text), text);
+    const id = "false_120363000000007200@g.us_ABCDEF_5511999990000@lid";
+    assert.equal(maskJidsInText(id), id);
+    const obj = { a: text };
+    assert.equal(maskFields(obj, ["a"]), obj);
+    const state = { records: [{ id: "r1", kind: "despesa", despesa: { description: text } }] } as never;
+    assert.equal(maskStateRecordsPii(state), 0);
   });
 });

@@ -13,6 +13,15 @@
  * `maskPii(maskPii(x)) === maskPii(x)`.
  */
 
+/**
+ * Chave única da máscara (decisão do Bruno, 19/10/2026: DESLIGADA).
+ * PII_MASK_ENABLED=true religa tudo (store, planilha, transcrições, PDF, Drive) sem outra mudança:
+ * todos os pontos passam por maskPii / maskJidsInText. Lido a cada chamada.
+ */
+export function piiMaskEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.PII_MASK_ENABLED === "true";
+}
+
 /** Marca de valor mascarado. Parsers de dinheiro devem ignorar o que vem depois dela. */
 export const MASK_MARK = "…";
 
@@ -115,18 +124,22 @@ export function maskPixValue(value: string): string {
   return `${MASK_MARK}${bare.slice(-6)}`;
 }
 
-/** Só JIDs (`…1234@g.us`). Seguro para ids de mensagem OpenWA: o hash da mensagem fica. */
+/** Só JIDs (`…1234@g.us`). Seguro para ids de mensagem OpenWA: o hash da mensagem fica. No-op com a máscara desligada. */
 export function maskJidsInText(text: string): string {
-  if (!text) return text;
+  if (!text || !piiMaskEnabled()) return text;
+  return maskJidsAlways(text);
+}
+
+function maskJidsAlways(text: string): string {
   return text.replace(JID_RE, (_m, user: string, server: string) => `${MASK_MARK}${user.slice(-4)}@${server}`);
 }
 
-/** Máscara completa de PII em texto livre. */
+/** Máscara completa de PII em texto livre. No-op com a máscara desligada (padrão). */
 export function maskPii(text: string): string;
 export function maskPii(text: string | undefined): string | undefined;
 export function maskPii(text: string | undefined): string | undefined {
-  if (!text) return text;
-  let out = maskJidsInText(text);
+  if (!text || !piiMaskEnabled()) return text;
+  let out = maskJidsAlways(text);
   out = out.replace(BRCODE_RE, (m) => maskPixValue(m));
   out = out.replace(E2E_RE, (m) => maskPixValue(m));
   out = out.replace(PIX_RE, (_m, prefix: string, value: string) => `${prefix}${maskPixValue(value)}`);

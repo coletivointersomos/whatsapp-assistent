@@ -62,7 +62,23 @@ function pdfInbound(): InboundMessage {
 }
 
 describe("PDF (2b)", () => {
-  it("PDF com texto vira texto para o NLU, com PII mascarada, sem mídia", async () => {
+  it("PDF com texto vira texto para o NLU, sem mídia; sem máscara por padrão", async () => {
+    delete process.env.PII_MASK_ENABLED;
+    const { runner, calls } = fakeRunner({ text: "Comprovante Pix\nCPF 529.982.247-25\nValor R$ 150,00\nAgência 0001 Conta 12345-6" });
+    const events: string[] = [];
+    const out = await ingestPdfInbound({ inbound: pdfInbound(), runner, log: (e) => events.push(e) });
+    assert.deepEqual(calls, ["pdftotext"]);
+    assert.equal(out.type, "texto");
+    assert.equal(out.media, undefined);
+    assert.match(out.text ?? "", /^comprovante\nComprovante Pix/);
+    assert.match(out.text ?? "", /CPF 529\.982\.247-25/);
+    assert.match(out.text ?? "", /R\$ 150,00/);
+    assert.match(out.text ?? "", /Conta 12345-6/);
+    assert.deepEqual(events, ["pdf_text_extracted"]);
+  });
+  it("PDF com texto vira texto para o NLU, com PII mascarada quando PII_MASK_ENABLED=true", async () => {
+    process.env.PII_MASK_ENABLED = "true";
+    try {
     const { runner, calls } = fakeRunner({ text: "Comprovante Pix\nCPF 529.982.247-25\nValor R$ 150,00\nAgência 0001 Conta 12345-6" });
     const events: string[] = [];
     const out = await ingestPdfInbound({ inbound: pdfInbound(), runner, log: (e) => events.push(e) });
@@ -74,6 +90,9 @@ describe("PDF (2b)", () => {
     assert.match(out.text ?? "", /R\$ 150,00/);
     assert.doesNotMatch(out.text ?? "", /529\.982|12345-6/);
     assert.deepEqual(events, ["pdf_text_extracted"]);
+      } finally {
+      delete process.env.PII_MASK_ENABLED;
+    }
   });
 
   it("PDF sem texto: 1ª página rasterizada vai ao vision como JPEG", async () => {

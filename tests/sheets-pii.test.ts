@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { seedState } from "../src/config/seed.ts";
 import type { AppState } from "../src/domain/types.ts";
 import { parseBrl, recordToRow } from "../src/sheets/mapper.ts";
@@ -56,6 +56,14 @@ function stateWithPii(): AppState {
 }
 
 describe("PII fora da planilha", () => {
+  // Máscara desligada por padrão desde 19/10/2026; aqui testa o comportamento religado.
+  before(() => {
+    process.env.PII_MASK_ENABLED = "true";
+  });
+  after(() => {
+    delete process.env.PII_MASK_ENABLED;
+  });
+
   it("SheetRow (record mapping) sai mascarado, valores intactos", () => {
     const state = stateWithPii();
     const row = recordToRow(state, state.records[0]!);
